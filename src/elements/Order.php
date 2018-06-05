@@ -1804,7 +1804,7 @@ class Order extends Element
      */
     private function _updateLineItems()
     {
-        //Don't save if nothing modified.
+        // Don't save if nothing modified.
         if (!in_array('lineItems', $this->_dirtyAttributes, true)) {
             return;
         }
