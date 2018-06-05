@@ -309,6 +309,11 @@ class Order extends Element
      */
     private $_recalculate = true;
 
+    /**
+     * @var array The attributes that have changed
+     */
+    private $_dirtyAttributes = [];
+
     // Public Methods
     // =========================================================================
 
@@ -1083,6 +1088,11 @@ class Order extends Element
             $lineItem->setOrder($this);
         }
 
+        // Update dirty attribute
+        if (!in_array('lineItems', $this->_dirtyAttributes, true)) {
+            $this->_dirtyAttributes[] = 'lineItems';
+        }
+
         $this->_lineItems = $lineItems;
     }
 
@@ -1174,7 +1184,7 @@ class Order extends Element
     public function getAdjustments(): array
     {
         if (null === $this->_orderAdjustments) {
-            $this->setAdjustments(Plugin::getInstance()->getOrderAdjustments()->getAllOrderAdjustmentsByOrderId($this->id));
+            $this->_orderAdjustments = Plugin::getInstance()->getOrderAdjustments()->getAllOrderAdjustmentsByOrderId($this->id);
         }
 
         return $this->_orderAdjustments;
@@ -1202,6 +1212,11 @@ class Order extends Element
      */
     public function setAdjustments(array $adjustments)
     {
+        // Update dirty attribute
+        if (!in_array('adjustments', $this->_dirtyAttributes, true)) {
+            $this->_dirtyAttributes[] = 'adjustments';
+        }
+
         $this->_orderAdjustments = $adjustments;
     }
 
@@ -1760,6 +1775,11 @@ class Order extends Element
      */
     private function _updateAdjustments()
     {
+        // Don't save if nothing modified.
+        if (!in_array('adjustments', $this->_dirtyAttributes, true)) {
+            return;
+        }
+
         $previousAdjustments = OrderAdjustmentRecord::find()
             ->where(['orderId' => $this->id])
             ->all();
@@ -1784,6 +1804,11 @@ class Order extends Element
      */
     private function _updateLineItems()
     {
+        //Don't save if nothing modified.
+        if (!in_array('lineItems', $this->_dirtyAttributes, true)) {
+            return;
+        }
+
         $previousLineItems = LineItemRecord::find()
             ->where(['orderId' => $this->id])
             ->all();
