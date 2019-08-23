@@ -39,7 +39,7 @@ class TaxRatesController extends BaseTaxSettingsController
         $plugin->getTaxZones()->getAllTaxZones();
         $plugin->getTaxCategories()->getAllTaxCategories();
 
-        return $this->renderTemplate('commerce/settings/taxrates/index', [
+        return $this->renderTemplate('commerce/tax/taxrates/index', [
             'taxRates' => $taxRates
         ]);
     }
@@ -52,10 +52,7 @@ class TaxRatesController extends BaseTaxSettingsController
      */
     public function actionEdit(int $id = null, TaxRate $taxRate = null): Response
     {
-        $variables = [
-            'id' => $id,
-            'taxRate' => $taxRate
-        ];
+        $variables = compact('id', 'taxRate');
 
         $plugin = Plugin::getInstance();
 
@@ -107,22 +104,24 @@ class TaxRatesController extends BaseTaxSettingsController
         $countries = $plugin->getCountries()->getAllCountries();
         $states = $plugin->getStates()->getAllStates();
         $variables['newTaxZoneFields'] = $view->namespaceInputs(
-            $view->renderTemplate('commerce/settings/taxzones/_fields', [
+            $view->renderTemplate('commerce/tax/taxzones/_fields', [
                 'countries' => ArrayHelper::map($countries, 'id', 'name'),
-                'states' => ArrayHelper::map($states, 'id', 'name'),
+                'states' => ArrayHelper::map($states, 'id', 'name')
             ])
         );
         $variables['newTaxZoneJs'] = $view->clearJsBuffer(false);
 
         $view->startJsBuffer();
         $variables['newTaxCategoryFields'] = $view->namespaceInputs(
-            $view->renderTemplate('commerce/settings/taxcategories/_fields')
+            $view->renderTemplate('commerce/tax/taxcategories/_fields', [
+                'productTypes' => Plugin::getInstance()->getProductTypes()->getAllProductTypes()
+            ])
         );
         $variables['newTaxCategoryJs'] = $view->clearJsBuffer(false);
 
         $view->setNamespace();
 
-        return $this->renderTemplate('commerce/settings/taxrates/_edit', $variables);
+        return $this->renderTemplate('commerce/tax/taxrates/_edit', $variables);
     }
 
     /**
@@ -137,8 +136,8 @@ class TaxRatesController extends BaseTaxSettingsController
         // Shared attributes
         $taxRate->id = Craft::$app->getRequest()->getBodyParam('taxRateId');
         $taxRate->name = Craft::$app->getRequest()->getBodyParam('name');
-        $taxRate->include = (bool) Craft::$app->getRequest()->getBodyParam('include');
-        $taxRate->isVat = (bool) Craft::$app->getRequest()->getBodyParam('isVat');
+        $taxRate->include = (bool)Craft::$app->getRequest()->getBodyParam('include');
+        $taxRate->isVat = (bool)Craft::$app->getRequest()->getBodyParam('isVat');
         $taxRate->taxable = Craft::$app->getRequest()->getBodyParam('taxable');
         $taxRate->taxCategoryId = Craft::$app->getRequest()->getBodyParam('taxCategoryId');
         $taxRate->taxZoneId = Craft::$app->getRequest()->getBodyParam('taxZoneId');

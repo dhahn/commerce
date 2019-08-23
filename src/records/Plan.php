@@ -8,6 +8,7 @@
 namespace craft\commerce\records;
 
 use craft\db\ActiveRecord;
+use DateTime;
 use yii\db\ActiveQueryInterface;
 
 /**
@@ -21,8 +22,9 @@ use yii\db\ActiveQueryInterface;
  * @property string $reference
  * @property bool $enabled
  * @property bool $isArchived
- * @property \DateTime $dateArchived
+ * @property DateTime $dateArchived
  * @property string $planData
+ * @property int $sortOrder
  * @property ActiveQueryInterface $gateway
  * @author Pixel & Tonic, Inc. <support@pixelandtonic.com>
  * @since 2.0

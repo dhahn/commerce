@@ -8,6 +8,7 @@
 namespace craft\commerce\services;
 
 use Craft;
+use craft\base\Field;
 use craft\commerce\base\Plan;
 use craft\commerce\base\SubscriptionGatewayInterface;
 use craft\commerce\elements\Subscription;
@@ -23,13 +24,21 @@ use craft\commerce\models\subscriptions\SubscriptionPayment;
 use craft\commerce\models\subscriptions\SwitchPlansForm;
 use craft\commerce\records\Subscription as SubscriptionRecord;
 use craft\elements\User;
+use craft\errors\ElementNotFoundException;
+use craft\events\ConfigEvent;
+use craft\events\FieldEvent;
 use craft\events\ModelEvent;
 use craft\helpers\Db;
+use craft\helpers\ProjectConfig as ProjectConfigHelper;
+use craft\models\FieldLayout;
+use DateTime;
+use Throwable;
 use yii\base\Component;
+use yii\base\Exception;
 use yii\base\InvalidConfigException;
 
 /**
- * Susbcriptions service.
+ * Subscriptions service.
  *
  * @author Pixel & Tonic, Inc. <support@pixelandtonic.com>
  * @since 2.0
@@ -232,8 +241,72 @@ class Subscriptions extends Component
      */
     const EVENT_RECEIVE_SUBSCRIPTION_PAYMENT = 'receiveSubscriptionPayment';
 
+    const CONFIG_FIELDLAYOUT_KEY = 'commerce.subscriptions.fieldLayouts';
+
     // Public Methods
     // =========================================================================
+
+    /**
+     * Handle field layout change
+     *
+     * @param ConfigEvent $event
+     */
+    public function handleChangedFieldLayout(ConfigEvent $event)
+    {
+        $data = $event->newValue;
+
+        ProjectConfigHelper::ensureAllFieldsProcessed();
+        $fieldsService = Craft::$app->getFields();
+
+        if (empty($data) || empty($config = reset($data))) {
+            // Delete the field layout
+            $fieldsService->deleteLayoutsByType(Subscription::class);
+            return;
+        }
+
+        // Save the field layout
+        $layout = FieldLayout::createFromConfig(reset($data));
+        $layout->id = $fieldsService->getLayoutByType(Subscription::class)->id;
+        $layout->type = Subscription::class;
+        $layout->uid = key($data);
+        $fieldsService->saveLayout($layout);
+    }
+
+    /**
+     * Prune a deleted field from subscription field layouts.
+     *
+     * @param FieldEvent $event
+     */
+    public function pruneDeletedField(FieldEvent $event)
+    {
+        /** @var Field $field */
+        $field = $event->field;
+        $fieldUid = $field->uid;
+
+        $projectConfig = Craft::$app->getProjectConfig();
+        $layoutData = $projectConfig->get(self::CONFIG_FIELDLAYOUT_KEY);
+
+        // Prune the UID from field layouts.
+        if (is_array($layoutData)) {
+            foreach ($layoutData as $layoutUid => $layout) {
+                if (!empty($layout['tabs'])) {
+                    foreach ($layout['tabs'] as $tabUid => $tab) {
+                        $projectConfig->remove(self::CONFIG_FIELDLAYOUT_KEY . '.' . $layoutUid . '.tabs.' . $tabUid . '.fields.' . $fieldUid);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Handle field layout being deleted
+     *
+     * @param ConfigEvent $event
+     */
+    public function handleDeletedFieldLayout(ConfigEvent $event)
+    {
+        Craft::$app->getFields()->deleteLayoutsByType(Subscription::class);
+    }
 
     /**
      * Prevent deleting a user if they have any subscriptions - active or otherwise.
@@ -255,14 +328,18 @@ class Subscriptions extends Component
      * Expire a subscription.
      *
      * @param Subscription $subscription subscription to expire
-     * @param \DateTime $dateTime expiry date time
-     * @return bool whether succesfully expired subscription
-     * @throws \Throwable if cannot expire subscription
+     * @param DateTime $dateTime expiry date time
+     * @return bool whether successfully expired subscription
+     * @throws Throwable if cannot expire subscription
      */
-    public function expireSubscription(Subscription $subscription, \DateTime $dateTime = null): bool
+    public function expireSubscription(Subscription $subscription, DateTime $dateTime = null): bool
     {
         $subscription->isExpired = true;
-        $subscription->dateExpired = $dateTime ?? Db::prepareDateForDb(new \DateTime());
+        $subscription->dateExpired = $dateTime;
+
+        if (!$subscription->dateExpired) {
+            $subscription->dateExpired = Db::prepareDateForDb(new DateTime());
+        }
 
         Craft::$app->getElements()->saveElement($subscription, false);
 
@@ -277,7 +354,7 @@ class Subscriptions extends Component
     }
 
     /**
-     * Returns susbcription count for a plan.
+     * Returns subscription count for a plan.
      *
      * @param int $planId
      * @return int
@@ -304,20 +381,17 @@ class Subscriptions extends Component
      * @param User $user the user subscribing to a plan
      * @param Plan $plan the plan the user is being subscribed to
      * @param SubscriptionForm $parameters array of additional parameters to use
+     * @param array $fieldValues array of content field values to set
      * @return Subscription the subscription
      * @throws InvalidConfigException if the gateway does not support subscriptions
      * @throws SubscriptionException if something went wrong during subscription
      */
-    public function createSubscription(User $user, Plan $plan, SubscriptionForm $parameters): Subscription
+    public function createSubscription(User $user, Plan $plan, SubscriptionForm $parameters, array $fieldValues = []): Subscription
     {
         $gateway = $plan->getGateway();
 
         // fire a 'beforeCreateSubscription' event
-        $event = new CreateSubscriptionEvent([
-            'user' => $user,
-            'plan' => $plan,
-            'parameters' => $parameters
-        ]);
+        $event = new CreateSubscriptionEvent(compact('user', 'plan', 'parameters'));
         $this->trigger(self::EVENT_BEFORE_CREATE_SUBSCRIPTION, $event);
 
         if (!$event->isValid) {
@@ -333,6 +407,10 @@ class Subscriptions extends Component
 
         $response = $gateway->subscribe($user, $plan, $parameters);
 
+        if ($response->isInactive()) {
+            throw new SubscriptionException(Craft::t('commerce', 'Unable to subscribe at this time.'));
+        }
+
         $subscription = new Subscription();
         $subscription->userId = $user->id;
         $subscription->planId = $plan->id;
@@ -344,6 +422,7 @@ class Subscriptions extends Component
         $subscription->subscriptionData = $response->getData();
         $subscription->isCanceled = false;
         $subscription->isExpired = false;
+        $subscription->setFieldValues($fieldValues);
 
         Craft::$app->getElements()->saveElement($subscription, false);
 
@@ -363,7 +442,9 @@ class Subscriptions extends Component
      * @param Subscription $subscription
      * @return bool
      * @throws InvalidConfigException if the gateway does not support subscriptions
-     * @throws SubscriptionException  if something went wrong when reactivating subscription
+     * @throws Throwable
+     * @throws ElementNotFoundException
+     * @throws Exception
      */
     public function reactivateSubscription(Subscription $subscription): bool
     {
@@ -391,7 +472,7 @@ class Subscriptions extends Component
 
         $response = $gateway->reactivateSubscription($subscription);
 
-        if (!$response->isScheduledForCancelation()) {
+        if (!$response->isScheduledForCancellation()) {
             $subscription->isCanceled = false;
             $subscription->dateCanceled = null;
             $subscription->subscriptionData = $response->getData();
@@ -439,7 +520,8 @@ class Subscriptions extends Component
         $event = new SubscriptionSwitchPlansEvent([
             'oldPlan' => $oldPlan,
             'subscription' => $subscription,
-            'newPlan' => $plan
+            'newPlan' => $plan,
+            'parameters' => $parameters
         ]);
         $this->trigger(self::EVENT_BEFORE_SWITCH_SUBSCRIPTION_PLAN, $event);
 
@@ -469,7 +551,8 @@ class Subscriptions extends Component
             $this->trigger(self::EVENT_AFTER_SWITCH_SUBSCRIPTION_PLAN, new SubscriptionSwitchPlansEvent([
                 'oldPlan' => $oldPlan,
                 'subscription' => $subscription,
-                'newPlan' => $plan
+                'newPlan' => $plan,
+                'parameters' => $parameters
             ]));
         }
 
@@ -494,10 +577,7 @@ class Subscriptions extends Component
         }
 
         // fire a 'beforeCancelSubscription' event
-        $event = new CancelSubscriptionEvent([
-            'subscription' => $subscription,
-            'parameters' => $parameters
-        ]);
+        $event = new CancelSubscriptionEvent(compact('subscription', 'parameters'));
         $this->trigger(self::EVENT_BEFORE_CANCEL_SUBSCRIPTION, $event);
 
         if (!$event->isValid) {
@@ -512,15 +592,17 @@ class Subscriptions extends Component
 
         $response = $gateway->cancelSubscription($subscription, $parameters);
 
-        if ($response->isCanceled() || $response->isScheduledForCancelation()) {
-            if ($response->isScheduledForCancelation()) {
+        if ($response->isCanceled() || $response->isScheduledForCancellation()) {
+            if ($response->isScheduledForCancellation()) {
                 $subscription->isCanceled = true;
-                $subscription->dateCanceled = Db::prepareDateForDb(new \DateTime());
+                $subscription->dateCanceled = Db::prepareDateForDb(new DateTime());
             }
 
             if ($response->isCanceled()) {
                 $subscription->isExpired = true;
-                $subscription->dateExpired = Db::prepareDateForDb(new \DateTime());
+                $subscription->isCanceled = true;
+                $subscription->dateCanceled = Db::prepareDateForDb(new DateTime());
+                $subscription->dateExpired = Db::prepareDateForDb(new DateTime());
             }
 
             $subscription->subscriptionData = $response->getData();
@@ -530,12 +612,9 @@ class Subscriptions extends Component
 
                 // fire an 'afterCancelSubscription' event
                 if ($this->hasEventHandlers(self::EVENT_AFTER_CANCEL_SUBSCRIPTION)) {
-                    $this->trigger(self::EVENT_AFTER_CANCEL_SUBSCRIPTION, new CancelSubscriptionEvent([
-                        'subscription' => $subscription,
-                        'parameters' => $parameters
-                    ]));
+                    $this->trigger(self::EVENT_AFTER_CANCEL_SUBSCRIPTION, new CancelSubscriptionEvent(compact('subscription', 'parameters')));
                 }
-            } catch (\Throwable $exception) {
+            } catch (Throwable $exception) {
                 Craft::warning('Failed to cancel subscription ' . $subscription->reference . ': ' . $exception->getMessage());
 
                 throw new SubscriptionException(Craft::t('commerce', 'Unable to cancel subscription at this time.'));
@@ -550,9 +629,9 @@ class Subscriptions extends Component
      *
      * @param Subscription $subscription
      * @return bool
-     * @throws \Throwable
-     * @throws \craft\errors\ElementNotFoundException
-     * @throws \yii\base\Exception
+     * @throws Throwable
+     * @throws ElementNotFoundException
+     * @throws Exception
      */
     public function updateSubscription(Subscription $subscription): bool
     {
@@ -570,21 +649,17 @@ class Subscriptions extends Component
      *
      * @param Subscription $subscription
      * @param SubscriptionPayment $payment
-     * @param \DateTime $paidUntil
+     * @param DateTime $paidUntil
      * @return bool
-     * @throws \Throwable
-     * @throws \craft\errors\ElementNotFoundException
-     * @throws \yii\base\Exception
+     * @throws Throwable
+     * @throws ElementNotFoundException
+     * @throws Exception
      */
-    public function receivePayment(Subscription $subscription, SubscriptionPayment $payment, \DateTime $paidUntil): bool
+    public function receivePayment(Subscription $subscription, SubscriptionPayment $payment, DateTime $paidUntil): bool
     {
 
         if ($this->hasEventHandlers(self::EVENT_RECEIVE_SUBSCRIPTION_PAYMENT)) {
-            $this->trigger(self::EVENT_RECEIVE_SUBSCRIPTION_PAYMENT, new SubscriptionPaymentEvent([
-                'subscription' => $subscription,
-                'payment' => $payment,
-                'paidUntil' => $paidUntil
-            ]));
+            $this->trigger(self::EVENT_RECEIVE_SUBSCRIPTION_PAYMENT, new SubscriptionPaymentEvent(compact('subscription', 'payment', 'paidUntil')));
         }
 
         $subscription->nextPaymentDate = $paidUntil;

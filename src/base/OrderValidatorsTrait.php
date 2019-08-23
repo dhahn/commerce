@@ -3,11 +3,17 @@
 namespace craft\commerce\base;
 
 use Craft;
+use craft\commerce\elements\Order;
+use craft\commerce\helpers\Order as OrderHelper;
 use craft\commerce\models\Address;
+use craft\commerce\models\LineItem;
 use craft\commerce\Plugin;
 use yii\base\InvalidConfigException;
 use yii\validators\Validator;
 
+/**
+ * @property Order $this
+ */
 trait OrderValidatorsTrait
 {
     /**
@@ -41,6 +47,21 @@ trait OrderValidatorsTrait
     }
 
     /**
+     * @param $attribute
+     * @param $params
+     * @param Validator $validator
+     */
+    public function validatePaymentCurrency($attribute, $params, Validator $validator)
+    {
+        try {
+            // this will confirm the payment source is valid and belongs to the orders customer
+            $this->getPaymentCurrency();
+        } catch (InvalidConfigException $e) {
+            $validator->addError($this, $attribute, Craft::t('commerce', 'Invalid payment source ID: {value}'));
+        }
+    }
+
+    /**
      * Validates addresses, and also adds prefixed validation errors to order
      *
      * @param string $attribute the attribute being validated
@@ -56,7 +77,7 @@ trait OrderValidatorsTrait
     }
 
     /**
-     * Validates address belongs to the orders custome.
+     * Validates that an address belongs to the order‘s customer.
      *
      * @param string $attribute the attribute being validated
      */
@@ -66,7 +87,7 @@ trait OrderValidatorsTrait
         /** @var Address $address */
         $address = $this->$attribute;
 
-        if($customer && $address) {
+        if ($customer && $address) {
             $addressesIds = Plugin::getInstance()->getCustomers()->getAddressIds($customer->id);
 
             if ($address->id && !in_array($address->id, $addressesIds, false)) {
@@ -77,14 +98,14 @@ trait OrderValidatorsTrait
     }
 
     /**
-     * Validates that shipping address isn't being set to be the same as billing adress, when billing address is set to be shipping address
+     * Validates that shipping address isn't being set to be the same as billing address, when billing address is set to be shipping address
      *
      * @param string $attribute the attribute being validated
      */
     public function validateAddressReuse($attribute)
     {
         if ($this->shippingSameAsBilling && $this->billingSameAsShipping) {
-            $this->addError($attribute, Craft::t('commerce', 'You can\'t set shipping address to be the same as billing when you\'re setting billing address to be same as shipping'));
+            $this->addError($attribute, Craft::t('commerce', 'shippingSameAsBilling and billingSameAsShipping can’t both be set.'));
         }
     }
 
@@ -95,7 +116,10 @@ trait OrderValidatorsTrait
      */
     public function validateLineItems($attribute)
     {
+        OrderHelper::mergeDuplicateLineItems($this);
+
         foreach ($this->getLineItems() as $key => $lineItem) {
+            /** @var LineItem $lineItem */
             if (!$lineItem->validate()) {
                 $this->addModelErrors($lineItem, "lineItems.{$key}");
             }

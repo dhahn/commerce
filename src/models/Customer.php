@@ -10,6 +10,7 @@ namespace craft\commerce\models;
 use Craft;
 use craft\commerce\base\Model;
 use craft\commerce\elements\Order;
+use craft\commerce\elements\Subscription;
 use craft\commerce\Plugin;
 use craft\elements\User;
 use yii\base\InvalidConfigException;
@@ -32,7 +33,7 @@ class Customer extends Model
     // =========================================================================
 
     /**
-     * @var int Customer ID
+     * @var int|null Customer ID
      */
     public $id;
 
@@ -70,6 +71,22 @@ class Customer extends Model
     }
 
     /**
+     * @inheritdoc
+     */
+    public function extraFields()
+    {
+        return [
+            'user',
+            'email',
+            'addresses',
+            'orders',
+            'subscriptions',
+            'primaryBillingAddress',
+            'primaryShippingAddress',
+        ];
+    }
+
+    /**
      * Returns the user element associated with this customer.
      *
      * @return User|null
@@ -86,7 +103,7 @@ class Customer extends Model
         }
 
         if (($user = Craft::$app->getUsers()->getUserById($this->userId)) === null) {
-            throw new InvalidConfigException("Invalid user ID: {$this->userId}");
+            return null; // They are probably soft-deleted
         }
 
         return $this->_user = $user;
@@ -154,7 +171,23 @@ class Customer extends Model
      */
     public function getOrders(): array
     {
-        return Order::find()->customer($this)->isCompleted(true)->all();
+        return Order::find()->customer($this)->isCompleted()->all();
+    }
+
+    /**
+     * Returns the subscription elements associated with this customer.
+     *
+     * @return Subscription[]
+     */
+    public function getSubscriptions(): array
+    {
+        $user = $this->getUser();
+
+        if (!$user) {
+            return [];
+        }
+
+        return Subscription::find()->user($user)->anyStatus()->all();
     }
 
     /**

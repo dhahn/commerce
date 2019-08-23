@@ -18,6 +18,7 @@ use craft\i18n\Locale;
  *
  * @property string $cpEditUrl
  * @property string $rateAsPercent
+ * @property-read bool $isEverywhere
  * @property TaxAddressZone|null $taxZone
  * @property TaxCategory|null $taxCategory
  * @author Pixel & Tonic, Inc. <support@pixelandtonic.com>
@@ -41,7 +42,7 @@ class TaxRate extends Model
     /**
      * @var float Rate
      */
-    public $rate = .05;
+    public $rate = .00;
 
     /**
      * @var bool Include
@@ -62,6 +63,11 @@ class TaxRate extends Model
      * @var int Tax category ID
      */
     public $taxCategoryId;
+
+    /**
+     * @var int Is this the tax rate for the lite edition
+     */
+    public $isLite;
 
     /**
      * @var int Tax zone ID
@@ -87,7 +93,7 @@ class TaxRate extends Model
     public function rules()
     {
         return [
-            [['taxZoneId', 'taxCategoryId', 'name'], 'required']
+            [['taxCategoryId', 'name'], 'required']
         ];
     }
 
@@ -96,7 +102,7 @@ class TaxRate extends Model
      */
     public function getCpEditUrl(): string
     {
-        return UrlHelper::cpUrl('commerce/settings/taxrates/' . $this->id);
+        return UrlHelper::cpUrl('commerce/tax/taxrates/' . $this->id);
     }
 
     /**
@@ -114,7 +120,7 @@ class TaxRate extends Model
      */
     public function getTaxZone()
     {
-        if (null === $this->_taxZone) {
+        if (null === $this->_taxZone && $this->taxZoneId) {
             $this->_taxZone = Plugin::getInstance()->getTaxZones()->getTaxZoneById($this->taxZoneId);
         }
 
@@ -131,5 +137,13 @@ class TaxRate extends Model
         }
 
         return $this->_taxCategory;
+    }
+
+    /**
+     * @return bool Does this tax rate apply everywhere
+     */
+    public function getIsEverywhere(): bool
+    {
+        return !$this->getTaxZone();
     }
 }

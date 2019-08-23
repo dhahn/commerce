@@ -24,9 +24,11 @@ abstract class SubscriptionGateway extends Gateway implements SubscriptionGatewa
     /**
      * Returns the cancel subscription form HTML
      *
-     * @return CancelSubscriptionHtml
+     * @param Subscription $subscription the subscription to cancel
+     *
+     * @return string
      */
-    abstract public function getCancelSubscriptionFormHtml(): string;
+    abstract public function getCancelSubscriptionFormHtml(Subscription $subscription): string;
 
     /**
      * Returns the cancel subscription form model
@@ -49,16 +51,6 @@ abstract class SubscriptionGateway extends Gateway implements SubscriptionGatewa
      * @return Plan
      */
     abstract public function getPlanModel(): Plan;
-
-    /**
-     * Returns the subscription form html to use when subscribing to a plan.
-     *
-     * @return string
-     */
-    public function getSubscriptionFormHtml(): string
-    {
-        return '';
-    }
 
     /**
      * Returns the subscription form model
@@ -94,5 +86,10 @@ abstract class SubscriptionGateway extends Gateway implements SubscriptionGatewa
         throw new NotImplementedException('This gateway has not implemented subscription reactivation');
     }
 
-
+    /**
+     * @inheritdoc
+     */
+    public function refreshPaymentHistory(Subscription $subscription)
+    {
+    }
 }

@@ -7,6 +7,7 @@
 
 namespace craft\commerce\base;
 
+use function count;
 use craft\base\ElementInterface;
 use craft\commerce\elements\Subscription;
 use craft\commerce\Plugin as Commerce;
@@ -21,7 +22,7 @@ use yii\base\InvalidConfigException;
  * Plan model
  *
  * @property GatewayInterface $gateway
- * @property \craft\elements\Entry|null $information
+ * @property Entry|null $information
  * @property int $subscriptionCount
  * @property User $user
  * @author Pixel & Tonic, Inc. <support@pixelandtonic.com>
@@ -61,7 +62,7 @@ abstract class Plan extends Model implements PlanInterface
     }
 
     /**
-     * Returns the user element associated with this customer.
+     * Returns the gateway for this subscription plan.
      *
      * @return SubscriptionGatewayInterface|null
      * @throws InvalidConfigException if gateway does not support subscriptions
@@ -125,11 +126,11 @@ abstract class Plan extends Model implements PlanInterface
      */
     public function hasActiveSubscription(int $userId): bool
     {
-        return (bool)\count($this->getActiveUserSubscriptions($userId));
+        return (bool)count($this->getActiveUserSubscriptions($userId));
     }
 
     /**
-     * Returns the subscription count for this plan.
+     * Returns active subscriptions for this plan by user id.
      *
      * @param int $userId the user id
      * @return ElementInterface[]
@@ -140,6 +141,21 @@ abstract class Plan extends Model implements PlanInterface
             ->userId($userId)
             ->planId($this->id)
             ->status(Subscription::STATUS_ACTIVE)
+            ->all();
+    }
+
+    /**
+     * Returns all subscriptions for this plan by user id, including expired subscriptions.
+     *
+     * @param int $userId the user id
+     * @return ElementInterface[]
+     */
+    public function getAllUserSubscriptions(int $userId): array
+    {
+        return Subscription::find()
+            ->userId($userId)
+            ->planId($this->id)
+            ->anyStatus()
             ->all();
     }
 

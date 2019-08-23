@@ -7,6 +7,8 @@
 
 namespace craft\commerce\base;
 
+use DateTime;
+
 /**
  * Plan trait
  *
@@ -19,7 +21,7 @@ trait PlanTrait
     // =========================================================================
 
     /**
-     * @var int Payment source ID
+     * @var int Plan ID
      */
     public $id;
 
@@ -59,7 +61,7 @@ trait PlanTrait
     public $isArchived;
 
     /**
-     * @var \DateTime when the plan was archived
+     * @var DateTime when the plan was archived
      */
     public $dateArchived;
 
@@ -67,4 +69,14 @@ trait PlanTrait
      * @var string gateway response
      */
     public $planData;
+
+    /**
+     * @var string plan uid
+     */
+    public $uid;
+
+    /**
+     * @var int sort order
+     */
+    public $sortOrder;
 }

@@ -12,6 +12,8 @@ use craft\commerce\base\Model;
 use craft\commerce\events\RegisterAddressRulesEvent;
 use craft\commerce\Plugin;
 use craft\helpers\UrlHelper;
+use DvK\Vat\Validator;
+use Exception;
 
 /**
  * Address Model
@@ -24,6 +26,7 @@ use craft\helpers\UrlHelper;
  * @property string $stateText
  * @property string $abbreviationText
  * @property int|string $stateValue
+ * @property Validator $vatValidator
  * @author Pixel & Tonic, Inc. <support@pixelandtonic.com>
  * @since 2.0
  */
@@ -146,6 +149,11 @@ class Address extends Model
      */
     private $_stateValue;
 
+    /**
+     * @var
+     */
+    private $_vatValidator;
+
     // Public Methods
     // =========================================================================
 
@@ -167,7 +175,19 @@ class Address extends Model
         $names[] = 'countryText';
         $names[] = 'stateText';
         $names[] = 'stateValue';
+        $names[] = 'abbreviationText';
         return $names;
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function extraFields()
+    {
+        return [
+            'country',
+            'state',
+        ];
     }
 
     /**
@@ -189,7 +209,7 @@ class Address extends Model
         $labels['businessName'] = Craft::t('commerce', 'Business Name');
         $labels['businessId'] = Craft::t('commerce', 'Business ID');
         $labels['businessTaxId'] = Craft::t('commerce', 'Business Tax ID');
-        $labels['countryId'] = Craft::t('commerce', 'State');
+        $labels['countryId'] = Craft::t('commerce', 'Country');
         $labels['stateId'] = Craft::t('commerce', 'State');
         $labels['stateName'] = Craft::t('commerce', 'State');
         $labels['stateValue'] = Craft::t('commerce', 'State');
@@ -205,6 +225,7 @@ class Address extends Model
         $rules[] = [['firstName'], 'required'];
         $rules[] = [['lastName'], 'required'];
         $rules[] = ['stateId', 'validateState', 'skipOnEmpty' => false];
+        $rules[] = ['businessTaxId', 'validateBusinessTaxId', 'skipOnEmpty' => true];
 
         $event = new RegisterAddressRulesEvent([
             'rules' => $rules
@@ -233,14 +254,58 @@ class Address extends Model
     }
 
     /**
-     * @return string
+     * @param $attribute
+     * @param $params
+     * @param $validator
      */
-    public function getFullName(): string
+    public function validateBusinessTaxId($attribute, $params, $validator)
+    {
+        if (!Plugin::getInstance()->getSettings()->validateBusinessTaxIdAsVatId) {
+            return;
+        }
+
+        // Do we have a valid VAT ID in our cache?
+        $validBusinessTaxId = Craft::$app->getCache()->exists('commerce:validVatId:' . $this->businessTaxId);
+
+        // If we do not have a valid VAT ID in cache, see if we can get one from the API
+        if (!$validBusinessTaxId) {
+            $validBusinessTaxId = $this->_validateVatNumber($this->businessTaxId);
+        }
+
+        if ($validBusinessTaxId) {
+            Craft::$app->getCache()->set('commerce:validVatId:' . $this->businessTaxId, '1');
+        }
+
+        // Clean up if the API returned false and the item was still in cache
+        if (!$validBusinessTaxId) {
+            Craft::$app->getCache()->delete('commerce:validVatId:' . $this->businessTaxId);
+            $this->addError('businessTaxId', Craft::t('commerce', 'Invalid Business Tax ID.'));
+        }
+    }
+
+    /**
+     * Returns the address full name.
+     *
+     * @return string|null
+     */
+    public function getFullName()
     {
         $firstName = trim($this->firstName);
         $lastName = trim($this->lastName);
 
-        return $firstName . ($firstName && $lastName ? ' ' : '') . $lastName;
+        if (!$firstName && !$lastName) {
+            return null;
+        }
+
+        $name = $firstName;
+
+        if ($firstName && $lastName) {
+            $name .= ' ';
+        }
+
+        $name .= $lastName;
+
+        return $name;
     }
 
     /**
@@ -322,5 +387,32 @@ class Address extends Model
         } else {
             $this->_stateValue = null;
         }
+    }
+
+    /**
+     * @param string $businessVatId
+     * @return bool
+     */
+    private function _validateVatNumber($businessVatId)
+    {
+        try {
+            return $this->_getVatValidator()->validate($businessVatId);
+        } catch (Exception $e) {
+            Craft::error('Communication with VAT API failed: ' . $e->getMessage(), __METHOD__);
+
+            return false;
+        }
+    }
+
+    /**
+     * @return Validator
+     */
+    private function _getVatValidator(): Validator
+    {
+        if ($this->_vatValidator === null) {
+            $this->_vatValidator = new Validator();
+        }
+
+        return $this->_vatValidator;
     }
 }

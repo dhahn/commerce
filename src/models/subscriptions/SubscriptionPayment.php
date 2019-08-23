@@ -9,6 +9,7 @@ namespace craft\commerce\models\subscriptions;
 
 use craft\base\Model;
 use craft\commerce\models\Currency;
+use DateTime;
 
 /**
  * Class SubscriptionPayment
@@ -29,7 +30,7 @@ class SubscriptionPayment extends Model
     public $paymentCurrency;
 
     /**
-     * @var \DateTime time of payment in UTC
+     * @var DateTime time of payment in UTC
      */
     public $paymentDate;
 
@@ -42,11 +43,6 @@ class SubscriptionPayment extends Model
      * @var bool whether payment has been collected
      */
     public $paid = false;
-
-    /**
-     * @var bool whether the payment was forgiven
-     */
-    public $forgiven = false;
 
     /**
      * @var string the gateway response text

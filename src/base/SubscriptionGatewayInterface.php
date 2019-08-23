@@ -32,7 +32,7 @@ interface SubscriptionGatewayInterface extends SavableComponentInterface
      * Cancels a subscription.
      *
      * @param Subscription $subscription the subscription to cancel
-     * @param CancelSubscriptionForm $parameters additional paramters touse
+     * @param CancelSubscriptionForm $parameters additional parameters to use
      * @return SubscriptionResponseInterface
      * @throws SubscriptionException for all subscription-related errors.
      */
@@ -53,6 +53,13 @@ interface SubscriptionGatewayInterface extends SavableComponentInterface
      * @return SubscriptionPayment[]
      */
     public function getSubscriptionPayments(Subscription $subscription): array;
+
+    /**
+     * Refresh the subscription payment history for a given subscription.
+     *
+     * @param Subscription $subscription
+     */
+    public function refreshPaymentHistory(Subscription $subscription);
 
     /**
      * Returns a subscription plan by its reference

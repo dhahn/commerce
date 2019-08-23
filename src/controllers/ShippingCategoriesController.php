@@ -30,7 +30,7 @@ class ShippingCategoriesController extends BaseShippingSettingsController
     public function actionIndex(): Response
     {
         $shippingCategories = Plugin::getInstance()->getShippingCategories()->getAllShippingCategories();
-        return $this->renderTemplate('commerce/settings/shippingcategories/index', compact('shippingCategories'));
+        return $this->renderTemplate('commerce/shipping/shippingcategories/index', compact('shippingCategories'));
     }
 
     /**
@@ -43,7 +43,8 @@ class ShippingCategoriesController extends BaseShippingSettingsController
     {
         $variables = [
             'id' => $id,
-            'shippingCategory' => $shippingCategory
+            'shippingCategory' => $shippingCategory,
+            'productTypes' => Plugin::getInstance()->getProductTypes()->getAllProductTypes()
         ];
 
         if (!$variables['shippingCategory']) {
@@ -64,7 +65,7 @@ class ShippingCategoriesController extends BaseShippingSettingsController
             $variables['title'] = Craft::t('commerce', 'Create a new shipping category');
         }
 
-        return $this->renderTemplate('commerce/settings/shippingcategories/_edit', $variables);
+        return $this->renderTemplate('commerce/shipping/shippingcategories/_edit', $variables);
     }
 
     /**
@@ -81,34 +82,53 @@ class ShippingCategoriesController extends BaseShippingSettingsController
         $shippingCategory->name = Craft::$app->getRequest()->getBodyParam('name');
         $shippingCategory->handle = Craft::$app->getRequest()->getBodyParam('handle');
         $shippingCategory->description = Craft::$app->getRequest()->getBodyParam('description');
-        $shippingCategory->default = Craft::$app->getRequest()->getBodyParam('default');
+        $shippingCategory->default = (bool)Craft::$app->getRequest()->getBodyParam('default');
+
+        // Set the new product types
+        $productTypes = [];
+        foreach (Craft::$app->getRequest()->getBodyParam('productTypes', []) as $productTypeId) {
+            if ($productTypeId && $productType = Plugin::getInstance()->getProductTypes()->getProductTypeById($productTypeId)) {
+                $productTypes[] = $productType;
+            }
+        }
+        $shippingCategory->setProductTypes($productTypes);
+
 
         // Save it
-        if (Plugin::getInstance()->getShippingCategories()->saveShippingCategory($shippingCategory)) {
-            if (Craft::$app->getRequest()->getAcceptsJson()) {
-                return $this->asJson([
-                    'success' => true,
-                    'id' => $shippingCategory->id,
-                    'name' => $shippingCategory->name,
-                ]);
-            } else {
-                Craft::$app->getSession()->setNotice(Craft::t('commerce', 'Shipping category saved.'));
-                $this->redirectToPostedUrl($shippingCategory);
-            }
-        } else {
+        if (!Plugin::getInstance()->getShippingCategories()->saveShippingCategory($shippingCategory)) {
+
             if (Craft::$app->getRequest()->getAcceptsJson()) {
                 return $this->asJson([
                     'errors' => $shippingCategory->getErrors()
                 ]);
-            } else {
-                Craft::$app->getSession()->setError(Craft::t('commerce', 'Couldn’t save shipping category.'));
             }
+            Craft::$app->getSession()->setError(Craft::t('commerce', 'Couldn’t save shipping category.'));
+
+            // Send the shipping category back to the template
+            Craft::$app->getUrlManager()->setRouteParams([
+                'shippingCategory' => $shippingCategory
+            ]);
+
+            return null;
         }
+
+        if (Craft::$app->getRequest()->getAcceptsJson()) {
+            return $this->asJson([
+                'success' => true,
+                'id' => $shippingCategory->id,
+                'name' => $shippingCategory->name,
+            ]);
+        }
+
+        Craft::$app->getSession()->setNotice(Craft::t('commerce', 'Shipping category saved.'));
+        $this->redirectToPostedUrl($shippingCategory);
 
         // Send the shipping category back to the template
         Craft::$app->getUrlManager()->setRouteParams([
             'shippingCategory' => $shippingCategory
         ]);
+
+        return null;
     }
 
     /**

@@ -7,8 +7,8 @@
 
 namespace craft\commerce\models;
 
-use craft\commerce\base\Model;
 use craft\commerce\base\AddressZoneInterface;
+use craft\commerce\base\Model;
 use craft\commerce\Plugin;
 use craft\commerce\records\TaxZone as TaxZoneRecord;
 use craft\helpers\UrlHelper;
@@ -77,7 +77,7 @@ class TaxAddressZone extends Model implements AddressZoneInterface
      */
     public function getCpEditUrl(): string
     {
-        return UrlHelper::cpUrl('commerce/settings/taxzones/' . $this->id);
+        return UrlHelper::cpUrl('commerce/tax/taxzones/' . $this->id);
     }
 
     /**

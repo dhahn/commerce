@@ -19,7 +19,6 @@ use craft\commerce\services\LineItems;
 use craft\commerce\services\OrderAdjustments;
 use craft\commerce\services\OrderHistories;
 use craft\commerce\services\Orders;
-use craft\commerce\services\OrderSettings;
 use craft\commerce\services\OrderStatuses;
 use craft\commerce\services\PaymentCurrencies;
 use craft\commerce\services\Payments;
@@ -29,6 +28,7 @@ use craft\commerce\services\Plans;
 use craft\commerce\services\Products;
 use craft\commerce\services\ProductTypes;
 use craft\commerce\services\Purchasables;
+use craft\commerce\services\Reports;
 use craft\commerce\services\Sales;
 use craft\commerce\services\ShippingCategories;
 use craft\commerce\services\ShippingMethods;
@@ -58,7 +58,6 @@ use craft\commerce\services\Variants;
  * @property OrderAdjustments $orderAdjustments the orderAdjustments service
  * @property OrderHistories $orderHistories the orderHistories service
  * @property Orders $orders the orders service
- * @property OrderSettings $orderSettings the orderSettings service
  * @property OrderStatuses $orderStatuses the orderStatuses service
  * @property PaymentCurrencies $paymentCurrencies the paymentCurrencies service
  * @property Payments $payments the payments service
@@ -210,16 +209,6 @@ trait Services
     }
 
     /**
-     * Returns the orderSettings service
-     *
-     * @return OrderSettings The orderSettings service
-     */
-    public function getOrderSettings(): OrderSettings
-    {
-        return $this->get('orderSettings');
-    }
-
-    /**
      * Returns the orderStatuses service
      *
      * @return OrderStatuses The orderStatuses service
@@ -307,6 +296,16 @@ trait Services
     public function getPurchasables(): Purchasables
     {
         return $this->get('purchasables');
+    }
+
+    /**
+     * Returns the reporting service
+     *
+     * @return Reports The reports service
+     */
+    public function getReports(): Reports
+    {
+        return $this->get('reports');
     }
 
     /**
@@ -460,7 +459,6 @@ trait Services
             'orderAdjustments' => OrderAdjustments::class,
             'orderHistories' => OrderHistories::class,
             'orders' => Orders::class,
-            'orderSettings' => OrderSettings::class,
             'orderStatuses' => OrderStatuses::class,
             'paymentMethods' => Gateways::class,
             'paymentCurrencies' => PaymentCurrencies::class,
@@ -471,6 +469,7 @@ trait Services
             'products' => Products::class,
             'productTypes' => ProductTypes::class,
             'purchasables' => Purchasables::class,
+            'reports' => Reports::class,
             'sales' => Sales::class,
             'shippingMethods' => ShippingMethods::class,
             'shippingRules' => ShippingRules::class,

@@ -8,13 +8,13 @@
 namespace craft\commerce\gateways;
 
 use Craft;
-use craft\commerce\base\CancelSubscriptionHtml;
 use craft\commerce\base\Plan;
 use craft\commerce\base\RequestResponseInterface;
 use craft\commerce\base\SubscriptionGateway;
 use craft\commerce\base\SubscriptionResponseInterface;
 use craft\commerce\elements\Subscription;
 use craft\commerce\models\payments\BasePaymentForm;
+use craft\commerce\models\payments\CreditCardPaymentForm;
 use craft\commerce\models\payments\DummyPaymentForm;
 use craft\commerce\models\PaymentSource;
 use craft\commerce\models\responses\Dummy as DummyRequestResponse;
@@ -105,11 +105,13 @@ class Dummy extends SubscriptionGateway
      */
     public function createPaymentSource(BasePaymentForm $sourceData, int $userId): PaymentSource
     {
+        /** @var CreditCardPaymentForm $sourceData */
+
         $paymentSource = new PaymentSource();
         $paymentSource->gatewayId = $this->id;
         $paymentSource->token = StringHelper::randomString();
         $paymentSource->response = '';
-        $paymentSource->description = 'Dummy payment source';
+        $paymentSource->description = 'Card ending with ' . StringHelper::last($sourceData->number, 4);
 
         return $paymentSource;
     }
@@ -221,7 +223,7 @@ class Dummy extends SubscriptionGateway
     /**
      * @inheritdoc
      */
-    public function getCancelSubscriptionFormHtml(): string
+    public function getCancelSubscriptionFormHtml(Subscription $subscription): string
     {
         return '';
     }
@@ -271,9 +273,9 @@ class Dummy extends SubscriptionGateway
      */
     public function cancelSubscription(Subscription $subscription, CancelSubscriptionForm $parameters): SubscriptionResponseInterface
     {
-        $subscription = new DummySubscriptionResponse();
-        $subscription->setIsCanceled(true);
-        return $subscription;
+        $response = new DummySubscriptionResponse();
+        $response->setIsCanceled(true);
+        return $response;
     }
 
     /**
@@ -313,7 +315,7 @@ class Dummy extends SubscriptionGateway
      */
     public function subscribe(User $user, Plan $plan, SubscriptionForm $parameters): SubscriptionResponseInterface
     {
-        $subscription =  new DummySubscriptionResponse();
+        $subscription = new DummySubscriptionResponse();
         $subscription->setTrialDays((int)$parameters->trialDays);
 
         return $subscription;

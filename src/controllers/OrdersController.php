@@ -8,15 +8,26 @@
 namespace craft\commerce\controllers;
 
 use Craft;
+use craft\base\Element;
 use craft\commerce\base\Gateway;
 use craft\commerce\elements\Order;
+use craft\commerce\errors\OrderStatusException;
 use craft\commerce\errors\RefundException;
+use craft\commerce\errors\TransactionException;
 use craft\commerce\gateways\MissingGateway;
 use craft\commerce\Plugin;
 use craft\commerce\records\Transaction as TransactionRecord;
+use craft\errors\ElementNotFoundException;
+use craft\errors\MissingComponentException;
 use craft\helpers\ArrayHelper;
 use craft\helpers\Json;
+use craft\helpers\Localization;
+use craft\models\FieldLayout;
+use DateTime;
+use Throwable;
+use Twig_Error_Loader;
 use yii\base\Exception;
+use yii\web\BadRequestHttpException;
 use yii\web\HttpException;
 use yii\web\Response;
 
@@ -52,21 +63,19 @@ class OrdersController extends BaseCpController
     }
 
     /**
-     * @param $orderId
+     * @param int $orderId
+     * @param Order $order
      * @return Response
      * @throws HttpException
      */
-    public function actionEditOrder($orderId): Response
+    public function actionEditOrder($orderId, Order $order = null): Response
     {
         $plugin = Plugin::getInstance();
         $variables = [
             'orderId' => $orderId,
-            'orderSettings' => $plugin->getOrderSettings()->getOrderSettingByHandle('order')
+            'order' => $order,
+            'fieldLayout' => Craft::$app->getFields()->getLayoutByType(Order::class)
         ];
-
-        if (!$variables['orderSettings']) {
-            throw new HttpException(404, Craft::t('commerce', 'No order settings found.'));
-        }
 
         if (empty($variables['order']) && !empty($variables['orderId'])) {
             $variables['order'] = $plugin->getOrders()->getOrderById($variables['orderId']);
@@ -77,7 +86,7 @@ class OrdersController extends BaseCpController
         }
 
         if (!empty($variables['orderId'])) {
-            $variables['title'] = 'Order ' . substr($variables['order']->number, 0, 7);
+            $variables['title'] = $variables['order']->reference ? 'Order ' . $variables['order']->reference : 'Cart ' . $variables['order']->number;
         } else {
             throw new HttpException(404);
         }
@@ -116,6 +125,11 @@ class OrdersController extends BaseCpController
 
     /**
      * Returns Payment Modal
+     *
+     * @return Response
+     * @throws Exception
+     * @throws Twig_Error_Loader
+     * @throws BadRequestHttpException
      */
     public function actionGetPaymentModal(): Response
     {
@@ -160,6 +174,7 @@ class OrdersController extends BaseCpController
 
             $paymentFormHtml = $gateway->getPaymentFormHtml([
                 'paymentForm' => $paymentFormModel,
+                'order' => $order
             ]);
 
             $paymentFormHtml = $view->renderTemplate('commerce/_components/gateways/_modalWrapper', [
@@ -187,10 +202,16 @@ class OrdersController extends BaseCpController
     }
 
     /**
-     * Capture Transaction
+     * Captures Transaction
+     *
+     * @return Response
+     * @throws TransactionException
+     * @throws MissingComponentException
+     * @throws BadRequestHttpException
      */
     public function actionTransactionCapture(): Response
     {
+        $this->requirePermission('commerce-capturePayment');
         $this->requirePostRequest();
         $id = Craft::$app->getRequest()->getRequiredBodyParam('id');
         $transaction = Plugin::getInstance()->getTransactions()->getTransactionById($id);
@@ -219,17 +240,22 @@ class OrdersController extends BaseCpController
     }
 
     /**
-     * Refund transaction.
+     * Refunds transaction.
+     *
+     * @return Response
+     * @throws MissingComponentException
+     * @throws BadRequestHttpException
      */
     public function actionTransactionRefund()
     {
-
+        $this->requirePermission('commerce-refundPayment');
         $this->requirePostRequest();
         $id = Craft::$app->getRequest()->getRequiredBodyParam('id');
 
         $transaction = Plugin::getInstance()->getTransactions()->getTransactionById($id);
 
         $amount = Craft::$app->getRequest()->getParam('amount');
+        $amount = Localization::normalizeNumber($amount);
         $note = Craft::$app->getRequest()->getRequiredBodyParam('note');
 
         if (!$transaction) {
@@ -244,7 +270,7 @@ class OrdersController extends BaseCpController
         }
 
         if (!$amount) {
-            $amount = $transaction->refundableAmount;
+            $amount = $transaction->getRefundableAmount();
         }
 
         if ($amount > $transaction->paymentAmount) {
@@ -283,6 +309,16 @@ class OrdersController extends BaseCpController
         return $this->redirectToPostedUrl();
     }
 
+    /**
+     * Completes Order
+     *
+     * @return Response
+     * @throws Exception
+     * @throws Throwable
+     * @throws OrderStatusException
+     * @throws ElementNotFoundException
+     * @throws BadRequestHttpException
+     */
     public function actionCompleteOrder(): Response
     {
         $this->requireAcceptsJson();
@@ -291,13 +327,22 @@ class OrdersController extends BaseCpController
         $order = Plugin::getInstance()->getOrders()->getOrderById($orderId);
 
         if ($order && !$order->isCompleted && $order->markAsComplete()) {
-            $date = new \DateTime($order->dateOrdered);
+            $date = new DateTime($order->dateOrdered);
             return $this->asJson(['success' => true, 'dateOrdered' => $date]);
         }
 
         return $this->asErrorJson(Craft::t('commerce', 'Could not mark the order as completed.'));
     }
 
+    /**
+     * Updates an order address
+     *
+     * @return Response
+     * @throws Exception
+     * @throws Throwable
+     * @throws ElementNotFoundException
+     * @throws BadRequestHttpException
+     */
     public function actionUpdateOrderAddress()
     {
         $this->requireAcceptsJson();
@@ -337,7 +382,13 @@ class OrdersController extends BaseCpController
     }
 
     /**
-     * @return Response|null
+     * Updates the order status
+     *
+     * @return null|Response
+     * @throws Exception
+     * @throws Throwable
+     * @throws ElementNotFoundException
+     * @throws BadRequestHttpException
      */
     public function actionUpdateStatus()
     {
@@ -364,23 +415,32 @@ class OrdersController extends BaseCpController
     }
 
     /**
+     * Saves the Order
      *
+     * @return null
+     * @throws Exception
+     * @throws Throwable
+     * @throws ElementNotFoundException
+     * @throws MissingComponentException
+     * @throws BadRequestHttpException
      */
     public function actionSaveOrder()
     {
         $this->requirePostRequest();
 
         $order = $this->_setOrderFromPost();
-        $this->_setContentFromPost($order);
 
-        if (Craft::$app->getElements()->saveElement($order)) {
-            return $this->redirectToPostedUrl($order);
+        $order->setScenario(Element::SCENARIO_LIVE);
+
+        if (!Craft::$app->getElements()->saveElement($order)) {
+            Craft::$app->getSession()->setError(Craft::t('commerce', 'Couldn’t save order.'));
+            Craft::$app->getUrlManager()->setRouteParams([
+                'order' => $order
+            ]);
+            return null;
         }
 
-        Craft::$app->getSession()->setError(Craft::t('commerce', 'Couldn’t save order.'));
-        Craft::$app->getUrlManager()->setRouteParams([
-            'order' => $order
-        ]);
+        return $this->redirectToPostedUrl($order);
     }
 
     /**
@@ -430,8 +490,10 @@ class OrdersController extends BaseCpController
      */
     private function _prepVariables(&$variables)
     {
+        /** @var Order $order */
+        $order = $variables['order'];
         // Can't just use the order's getCpEditUrl() because that might include the site handle when we don't want it
-        $variables['baseCpEditUrl'] = 'commerce/orders/' . $variables['order']->id;
+        $variables['baseCpEditUrl'] = 'commerce/orders/' . $order->id;
         // Set the "Continue Editing" URL
         $variables['continueEditingUrl'] = $variables['baseCpEditUrl'];
 
@@ -444,14 +506,15 @@ class OrdersController extends BaseCpController
             'class' => null
         ];
 
-        $orderSettings = $variables['orderSettings'];
-        foreach ($orderSettings->getFieldLayout()->getTabs() as $index => $tab) {
+        /** @var FieldLayout $fieldLayout */
+        $fieldLayout = $variables['fieldLayout'];
+        foreach ($fieldLayout->getTabs() as $index => $tab) {
             // Do any of the fields on this tab have errors?
             $hasErrors = false;
 
-            if ($variables['order']->hasErrors()) {
+            if ($order->hasErrors()) {
                 foreach ($tab->getFields() as $field) {
-                    if ($variables['order']->getErrors($field->getField()->handle)) {
+                    if ($order->getErrors($field->handle)) {
                         $hasErrors = true;
                         break;
                     }
@@ -494,14 +557,8 @@ class OrdersController extends BaseCpController
             throw new Exception(Craft::t('commerce', 'No order with the ID “{id}”', ['id' => $orderId]));
         }
 
-        return $order;
-    }
-
-    /**
-     * @param Order $order
-     */
-    private function _setContentFromPost($order)
-    {
         $order->setFieldValuesFromRequest('fields');
+
+        return $order;
     }
 }

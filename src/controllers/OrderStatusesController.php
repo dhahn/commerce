@@ -44,10 +44,7 @@ class OrderStatusesController extends BaseAdminController
      */
     public function actionEdit(int $id = null, OrderStatus $orderStatus = null): Response
     {
-        $variables = [
-            'id' => $id,
-            'orderStatus' => $orderStatus
-        ];
+        $variables = compact('id', 'orderStatus');
 
         if (!$variables['orderStatus']) {
             if ($variables['id']) {
@@ -124,16 +121,16 @@ class OrderStatusesController extends BaseAdminController
     /**
      * @return Response|null
      */
-    public function actionDelete()
+    public function actionArchive()
     {
         $this->requireAcceptsJson();
 
         $orderStatusId = Craft::$app->getRequest()->getRequiredParam('id');
 
-        if (Plugin::getInstance()->getOrderStatuses()->deleteOrderStatusById($orderStatusId)) {
+        if (Plugin::getInstance()->getOrderStatuses()->archiveOrderStatusById((int)$orderStatusId)) {
             return $this->asJson(['success' => true]);
         }
 
-        return null;
+        return $this->asJson(['error' => Craft::t('commerce', 'Couldn’t archive Order Status.')]);
     }
 }

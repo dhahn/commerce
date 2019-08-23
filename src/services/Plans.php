@@ -15,6 +15,7 @@ use craft\commerce\Plugin as Commerce;
 use craft\commerce\records\Plan as PlanRecord;
 use craft\db\Query;
 use craft\helpers\Db;
+use DateTime;
 use yii\base\Component;
 use yii\base\InvalidConfigException;
 
@@ -24,8 +25,8 @@ use yii\base\InvalidConfigException;
  * @author Pixel & Tonic, Inc. <support@pixelandtonic.com>
  * @since 2.0
  *
- * @property array|\craft\commerce\base\Plan[] $allEnabledPlans
- * @property array|\craft\commerce\base\Plan[] $allPlans
+ * @property array|Plan[] $allEnabledPlans
+ * @property array|Plan[] $allPlans
  */
 class Plans extends Component
 {
@@ -97,17 +98,7 @@ class Plans extends Component
         $results = $this->_createPlansQuery()
             ->all();
 
-        $plans = [];
-
-        foreach ($results as $result) {
-            try {
-                $plans[] = $this->_populatePlan($result);
-            } catch (InvalidConfigException $exception) {
-                continue; // Just skip this
-            }
-        }
-
-        return $plans;
+        return $this->_populatePlans($results);
     }
 
     /**
@@ -118,20 +109,10 @@ class Plans extends Component
     public function getAllEnabledPlans(): array
     {
         $results = $this->_createPlansQuery()
-            ->where(['enabled' => true])
+            ->andWhere(['enabled' => true])
             ->all();
 
-        $sources = [];
-
-        foreach ($results as $result) {
-            try {
-                $sources[] = $this->_populatePlan($result);
-            } catch (InvalidConfigException $exception) {
-                continue; // Just skip this
-            }
-        }
-
-        return $sources;
+        return $this->_populatePlans($results);
     }
 
     /**
@@ -146,17 +127,7 @@ class Plans extends Component
             ->where(['gatewayId' => $gatewayId])
             ->all();
 
-        $plans = [];
-
-        foreach ($results as $result) {
-            try {
-                $plans[] = $this->_populatePlan($result);
-            } catch (InvalidConfigException $exception) {
-                continue; // Just skip this
-            }
-        }
-
-        return $plans;
+        return $this->_populatePlans($results);
     }
 
     /**
@@ -170,6 +141,22 @@ class Plans extends Component
     {
         $result = $this->_createPlansQuery()
             ->where(['id' => $planId])
+            ->one();
+
+        return $result ? $this->_populatePlan($result) : null;
+    }
+
+    /**
+     * Returns a subscription plan by its uid.
+     *
+     * @param string $planUid The plan uid.
+     * @return Plan|null
+     * @throws InvalidConfigException if the plan configuration is not correct
+     */
+    public function getPlanByUid(string $planUid)
+    {
+        $result = $this->_createPlansQuery()
+            ->where(['uid' => $planUid])
             ->one();
 
         return $result ? $this->_populatePlan($result) : null;
@@ -208,6 +195,21 @@ class Plans extends Component
     }
 
     /**
+     * Returns plans which use the provided Entry for its "information"
+     *
+     * @param int $entryId The Entry ID to search by
+     * @return Plan[]
+     */
+    public function getPlansByInformationEntryId(int $entryId): array
+    {
+        $results = $this->_createPlansQuery()
+            ->where(['planInformationId' => $entryId])
+            ->all();
+
+        return $this->_populatePlans($results);
+    }
+
+    /**
      * Save a subscription plan
      *
      * @param Plan $plan The payment source being saved.
@@ -215,7 +217,7 @@ class Plans extends Component
      * @return bool Whether the plan was saved successfully
      * @throws InvalidConfigException if subscription plan not found by id.
      */
-    public function savePlan(Plan $plan, bool $runValidation = true)
+    public function savePlan(Plan $plan, bool $runValidation = true): bool
     {
         if ($plan->id) {
             $record = PlanRecord::findOne($plan->id);
@@ -249,6 +251,7 @@ class Plans extends Component
         $record->enabled = $plan->enabled;
         $record->isArchived = $plan->isArchived;
         $record->dateArchived = $plan->dateArchived;
+        $record->sortOrder = $plan->sortOrder ?? 99;
 
         // Save it!
         $record->save(false);
@@ -289,10 +292,28 @@ class Plans extends Component
         }
 
         $plan->isArchived = true;
-        $plan->dateArchived = Db::prepareDateForDb(new \DateTime());
+        $plan->dateArchived = Db::prepareDateForDb(new DateTime());
 
         return $this->savePlan($plan);
     }
+
+    /**
+     * Reorders subscription plans by ids.
+     *
+     * @param array $ids Array of plans.
+     * @return bool Always true.
+     */
+    public function reorderPlans(array $ids): bool
+    {
+        $command = Craft::$app->getDb()->createCommand();
+
+        foreach ($ids as $planOrder => $planId) {
+            $command->update('{{%commerce_plans}}', ['sortOrder' => $planOrder + 1], ['id' => $planId])->execute();
+        }
+
+        return true;
+    }
+
 
     // Private methods
     // =========================================================================
@@ -315,10 +336,34 @@ class Plans extends Component
                 'planData',
                 'enabled',
                 'isArchived',
-                'dateArchived'
+                'dateArchived',
+                'sortOrder',
+                'uid'
             ])
             ->where(['isArchived' => false])
+            ->orderBy(['sortOrder' => SORT_ASC])
             ->from(['{{%commerce_plans}}']);
+    }
+
+    /**
+     * Populate an array of plans from their database table rows
+     *
+     * @param array $results
+     * @return Plan[]
+     */
+    private function _populatePlans(array $results): array
+    {
+        $plans = [];
+
+        foreach ($results as $result) {
+            try {
+                $plans[] = $this->_populatePlan($result);
+            } catch (InvalidConfigException $exception) {
+                continue; // Just skip this
+            }
+        }
+
+        return $plans;
     }
 
     /**

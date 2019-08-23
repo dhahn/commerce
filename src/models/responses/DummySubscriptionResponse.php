@@ -7,11 +7,10 @@
 
 namespace craft\commerce\models\responses;
 
-use Craft;
-use craft\commerce\base\RequestResponseInterface;
 use craft\commerce\base\SubscriptionResponseInterface;
-use craft\commerce\models\payments\CreditCardPaymentForm;
 use craft\helpers\StringHelper;
+use DateInterval;
+use DateTime;
 
 /**
  * This is a dummy gateway request response.
@@ -74,9 +73,9 @@ class DummySubscriptionResponse implements SubscriptionResponseInterface
     /**
      * @inheritdoc
      */
-    public function getNextPaymentDate(): \DateTime
+    public function getNextPaymentDate(): DateTime
     {
-        return (new \DateTime())->add(new \DateInterval('P1Y'));
+        return (new DateTime())->add(new DateInterval('P1Y'));
     }
 
     /**
@@ -90,9 +89,16 @@ class DummySubscriptionResponse implements SubscriptionResponseInterface
     /**
      * @inheritdoc
      */
-    public function isScheduledForCancelation(): bool
+    public function isScheduledForCancellation(): bool
     {
         return $this->_isCanceled;
     }
 
+    /**
+     * @inheritdoc
+     */
+    public function isInactive(): bool
+    {
+        return false;
+    }
 }

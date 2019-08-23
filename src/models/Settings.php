@@ -9,6 +9,7 @@ namespace craft\commerce\models;
 
 use Craft;
 use craft\commerce\base\Model;
+use craft\commerce\errors\CurrencyException;
 use craft\commerce\Plugin;
 use craft\helpers\ArrayHelper;
 use craft\helpers\ConfigHelper;
@@ -24,6 +25,13 @@ use yii\base\InvalidConfigException;
  */
 class Settings extends Model
 {
+
+    // Constants
+    // =========================================================================
+    const MINIMUM_TOTAL_PRICE_STRATEGY_DEFAULT = 'default';
+    const MINIMUM_TOTAL_PRICE_STRATEGY_ZERO = 'zero';
+    const MINIMUM_TOTAL_PRICE_STRATEGY_SHIPPING = 'shipping';
+
     // Properties
     // =========================================================================
 
@@ -50,7 +58,7 @@ class Settings extends Model
     /**
      * @var string Order PDF Path
      */
-    public $orderPdfPath;
+    public $orderPdfPath = 'shop/_pdf/order';
 
     /**
      * @var string Order PDF Size
@@ -65,7 +73,7 @@ class Settings extends Model
     /**
      * @var string Order PDF file name format
      */
-    public $orderPdfFilenameFormat;
+    public $orderPdfFilenameFormat = 'Order-{number}';
 
     /**
      * @var string
@@ -76,6 +84,16 @@ class Settings extends Model
      * @var string
      */
     public $emailSenderNamePlaceholder;
+
+    /**
+     * @var string
+     */
+    public $minimumTotalPriceStrategy = 'default';
+
+    /**
+     * @var bool
+     */
+    public $mergeLastCartOnLogin = true;
 
     /**
      * @var array
@@ -110,6 +128,11 @@ class Settings extends Model
     /**
      * @var bool
      */
+    public $validateBusinessTaxIdAsVatId = false;
+
+    /**
+     * @var bool
+     */
     public $requireShippingAddressAtCheckout = false;
 
     /**
@@ -120,12 +143,22 @@ class Settings extends Model
     /**
      * @var bool
      */
+    public $requireShippingMethodSelectionAtCheckout = false;
+
+    /**
+     * @var bool
+     */
     public $autoSetNewCartAddresses = true;
 
     /**
      * @var bool
      */
     public $pdfAllowRemoteImages = false;
+
+    /**
+     * @var string The order reference format
+     */
+    public $orderReferenceFormat = '{{number[:7]}}';
 
     /**
      * @var string
@@ -167,10 +200,22 @@ class Settings extends Model
     }
 
     /**
+     * @return array
+     */
+    public function getMinimumTotalPriceStrategyOptions(): array
+    {
+        return [
+            self::MINIMUM_TOTAL_PRICE_STRATEGY_DEFAULT => Craft::t('commerce', 'Default - Allow the price to be negative if discounts are greater than the order value.'),
+            self::MINIMUM_TOTAL_PRICE_STRATEGY_ZERO => Craft::t('commerce', 'Zero - Minimum price is zero if discounts are greater than the order value.'),
+            self::MINIMUM_TOTAL_PRICE_STRATEGY_SHIPPING => Craft::t('commerce', 'Shipping - Minimum cost is the shipping cost, if the order price is less than the shipping cost.')
+        ];
+    }
+
+    /**
      * @param string|null $siteHandle
      * @return string|null
      * @throws InvalidConfigException if the currency in the config file is not set up
-     * @throws \craft\commerce\errors\CurrencyException
+     * @throws CurrencyException
      */
     public function getPaymentCurrency(string $siteHandle = null)
     {
@@ -188,10 +233,18 @@ class Settings extends Model
     /**
      * @inheritdoc
      */
-    public function rules()
+    public function rules(): array
     {
         return [
-            [['weightUnits', 'dimensionUnits', 'orderPdfPath', 'orderPdfFilenameFormat'], 'required']
+            [
+                ['weightUnits', 'dimensionUnits', 'orderPdfPath', 'orderPdfFilenameFormat', 'orderReferenceFormat'],
+                'required'
+            ],
+            [
+                ['emailSenderAddress'],
+                'email',
+                'skipOnEmpty' => true // Allow the email to be blank, it then defaults to the system email
+            ]
         ];
     }
 }

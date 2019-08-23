@@ -9,6 +9,7 @@ namespace craft\commerce\controllers;
 
 use Craft;
 use craft\commerce\Plugin;
+use Throwable;
 use yii\web\HttpException;
 use yii\web\Response;
 
@@ -47,12 +48,19 @@ class WebhooksController extends BaseController
 
         $response = null;
 
-        if ($gateway && $gateway->supportsWebhooks()) {
-            $response = $gateway->processWebHook();
-        }
+        try {
+            if ($gateway && $gateway->supportsWebhooks()) {
+                $response = $gateway->processWebHook();
+            }
+        } catch (Throwable $exception) {
+            $message = 'Exception while processing webhook: ' . $exception->getMessage() . "\n";
+            $message .= 'Exception thrown in ' . $exception->getFile() . ':' . $exception->getLine() . "\n";
+            $message .= 'Stack trace:' . "\n" . $exception->getTraceAsString();
 
-        if (!$response) {
-            throw new HttpException(400);
+            Craft::error($message, 'commerce');
+
+            $response = Craft::$app->getResponse();
+            $response->setStatusCodeByException($exception);
         }
 
         return $response;

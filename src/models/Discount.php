@@ -10,13 +10,18 @@ namespace craft\commerce\models;
 use Craft;
 use craft\commerce\base\Model;
 use craft\commerce\Plugin;
+use craft\commerce\records\Discount as DiscountRecord;
 use craft\helpers\UrlHelper;
+use craft\validators\UniqueValidator;
+use DateTime;
 
 /**
  * Discount model
  *
  * @property string|false $cpEditUrl
- * @property string $percentDiscountAsPercent
+ * @property-read string $percentDiscountAsPercent
+ * @property array $categoryIds
+ * @property array $purchasableIds
  * @property array $userGroupIds
  * @author Pixel & Tonic, Inc. <support@pixelandtonic.com>
  * @since 2.0
@@ -67,12 +72,12 @@ class Discount extends Model
     public $totalUses = 0;
 
     /**
-     * @var \DateTime|null Date the discount is valid from
+     * @var DateTime|null Date the discount is valid from
      */
     public $dateFrom;
 
     /**
-     * @var \DateTime|null Date the discount is valid to
+     * @var DateTime|null Date the discount is valid to
      */
     public $dateTo;
 
@@ -117,9 +122,14 @@ class Discount extends Model
     public $excludeOnSale;
 
     /**
-     * @var bool Order has free shipping.
+     * @var bool Matching products have free shipping.
      */
-    public $freeShipping;
+    public $hasFreeShippingForMatchingItems;
+
+    /**
+     * @var bool The whole order has free shipping.
+     */
+    public $hasFreeShippingForOrder;
 
     /**
      * @var bool Match all user groups.
@@ -152,12 +162,12 @@ class Discount extends Model
     public $sortOrder;
 
     /**
-     * @var \DateTime|null
+     * @var DateTime|null
      */
     public $dateCreated;
 
     /**
-     * @var \DateTime|null
+     * @var DateTime|null
      */
     public $dateUpdated;
 
@@ -266,6 +276,44 @@ class Discount extends Model
     }
 
     /**
+     * @param bool $value
+     * @deprecated in 2.1
+     */
+    public function setFreeShipping($value)
+    {
+        Craft::$app->getDeprecator()->log('Discount::setFreeShipping()', 'Discount::setFreeShipping() has been deprecated. Use Discount::setHasFreeShippingForMatchingItems() instead');
+
+        $this->setHasFreeShippingForMatchingItems($value);
+    }
+
+    /**
+     * @return bool
+     * @deprecated in 2.1
+     */
+    public function getFreeShipping(): bool
+    {
+        Craft::$app->getDeprecator()->log('Discount::getFreeShipping()', 'Discount::getFreeShipping() or discount.freeShipping has been deprecated. Use Discount::getHasFreeShippingForMatchingItems() or discount.hasFreeShippingForMatchingItems instead');
+
+        return $this->getHasFreeShippingForMatchingItems();
+    }
+
+    /**
+     * @param bool $value
+     */
+    public function setHasFreeShippingForMatchingItems($value)
+    {
+        $this->hasFreeShippingForMatchingItems = (bool)$value;
+    }
+
+    /**
+     * @return bool
+     */
+    public function getHasFreeShippingForMatchingItems(): bool
+    {
+        return (bool)$this->hasFreeShippingForMatchingItems;
+    }
+
+    /**
      * @return string
      */
     public function getPercentDiscountAsPercent(): string
@@ -286,7 +334,30 @@ class Discount extends Model
     public function rules()
     {
         return [
-            [['name'], 'required']
+            [['name'], 'required'],
+            [
+                [
+                    'purchaseTotal',
+                    'perUserLimit',
+                    'perEmailLimit',
+                    'totalUseLimit',
+                    'totalUses',
+                    'purchaseTotal',
+                    'purchaseQty',
+                    'maxPurchaseQty',
+                    'baseDiscount',
+                    'perItemDiscount',
+                    'percentDiscount'
+                ], 'number', 'skipOnEmpty' => false
+            ],
+            [
+                'hasFreeShippingForOrder', function($attribute, $params, $validator) {
+                if ($this->hasFreeShippingForMatchingItems && $this->hasFreeShippingForOrder) {
+                    $this->addError($attribute, 'Free shipping can only be for whole order or matching items, not both.');
+                }
+            }
+            ],
+            [['code'], UniqueValidator::class, 'targetClass' => DiscountRecord::class, 'targetAttribute' => ['code']],
         ];
     }
 

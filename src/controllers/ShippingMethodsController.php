@@ -30,7 +30,7 @@ class ShippingMethodsController extends BaseShippingSettingsController
     public function actionIndex(): Response
     {
         $shippingMethods = Plugin::getInstance()->getShippingMethods()->getAllShippingMethods();
-        return $this->renderTemplate('commerce/settings/shippingmethods/index', compact('shippingMethods'));
+        return $this->renderTemplate('commerce/shipping/shippingmethods/index', compact('shippingMethods'));
     }
 
     /**
@@ -41,10 +41,7 @@ class ShippingMethodsController extends BaseShippingSettingsController
      */
     public function actionEdit(int $id = null, ShippingMethod $shippingMethod = null): Response
     {
-        $variables = [
-            'id' => $id,
-            'shippingMethod' => $shippingMethod
-        ];
+        $variables = compact('id', 'shippingMethod');
 
         $variables['newMethod'] = false;
 
@@ -70,7 +67,7 @@ class ShippingMethodsController extends BaseShippingSettingsController
 
         $variables['shippingRules'] = $shippingRules;
 
-        return $this->renderTemplate('commerce/settings/shippingmethods/_edit', $variables);
+        return $this->renderTemplate('commerce/shipping/shippingmethods/_edit', $variables);
     }
 
     /**
@@ -85,7 +82,7 @@ class ShippingMethodsController extends BaseShippingSettingsController
         $shippingMethod->id = Craft::$app->getRequest()->getBodyParam('shippingMethodId');
         $shippingMethod->name = Craft::$app->getRequest()->getBodyParam('name');
         $shippingMethod->handle = Craft::$app->getRequest()->getBodyParam('handle');
-        $shippingMethod->enabled = Craft::$app->getRequest()->getBodyParam('enabled');
+        $shippingMethod->enabled = (bool)Craft::$app->getRequest()->getBodyParam('enabled');
 
         // Save it
         if (Plugin::getInstance()->getShippingMethods()->saveShippingMethod($shippingMethod)) {

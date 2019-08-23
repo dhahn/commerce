@@ -16,13 +16,16 @@ use craft\commerce\Plugin;
 use craft\db\Migration;
 use craft\db\Query;
 use craft\elements\Category;
+use craft\errors\CategoryGroupNotFoundException;
 use craft\fields\Categories;
+use craft\helpers\Json;
 use craft\helpers\MigrationHelper;
 use craft\models\CategoryGroup;
 use craft\models\CategoryGroup_SiteSettings;
 use craft\models\FieldGroup;
 use craft\models\FieldLayout;
 use craft\models\FieldLayoutTab;
+use Throwable;
 
 /**
  * m171010_170000_stock_location
@@ -36,40 +39,40 @@ class m171202_180000_promotions_for_all_purchasables extends Migration
     {
         $salesProducts = (new Query())
             ->select(['saleId', 'productId'])
-            ->from('{{%commerce_sale_products}}')
+            ->from(['{{%commerce_sale_products}}'])
             ->all();
 
         $salesProductIds = (new Query())
             ->select(['productId'])
-            ->from('{{%commerce_sale_products}}')
+            ->from(['{{%commerce_sale_products}}'])
             ->distinct()
             ->column();
 
         $salesProductTypes = (new Query())
             ->select(['saleId', 'productTypeId'])
-            ->from('{{%commerce_sale_producttypes}}')
+            ->from(['{{%commerce_sale_producttypes}}'])
             ->all();
 
         $discountsProducts = (new Query())
             ->select(['discountId', 'productId'])
-            ->from('{{%commerce_discount_products}}')
+            ->from(['{{%commerce_discount_products}}'])
             ->all();
 
         $discountsProductIds = (new Query())
             ->select(['discountId'])
-            ->from('{{%commerce_discount_products}}')
+            ->from(['{{%commerce_discount_products}}'])
             ->distinct()
             ->column();
 
         $discountsProductTypes = (new Query())
             ->select(['discountId', 'productTypeId'])
-            ->from('{{%commerce_discount_producttypes}}')
+            ->from(['{{%commerce_discount_producttypes}}'])
             ->all();
 
         // Get all Product Types
         $productTypes = (new Query())
             ->select(['id', 'name', 'handle'])
-            ->from('{{%commerce_producttypes}}')
+            ->from(['{{%commerce_producttypes}}'])
             ->all();
 
         // Create a category group for the product types sales and discounts to link to
@@ -104,9 +107,9 @@ class m171202_180000_promotions_for_all_purchasables extends Migration
             $db = Craft::$app->getDb();
 
             // Update all product's `promotionCategories` field we created  with the product types category we created from the product type.
-            $products = Product::find()->limit(null)->all();
+            $products = Product::find()->limit(null);
 
-            foreach ($products as $product) {
+            foreach ($products->each() as $product) {
                 $data = [
                     'fieldId' => $field->id,
                     'sourceId' => $product->id,
@@ -127,7 +130,7 @@ class m171202_180000_promotions_for_all_purchasables extends Migration
 
             $discountExists = (new Query())
                 ->select(['id'])
-                ->from('{{%commerce_discounts}}')
+                ->from(['{{%commerce_discounts}}'])
                 ->where(['id' => $discountsProductType['discountId']])
                 ->exists();
 
@@ -166,7 +169,7 @@ class m171202_180000_promotions_for_all_purchasables extends Migration
 
             $saleExists = (new Query())
                 ->select(['id'])
-                ->from('{{%commerce_sales}}')
+                ->from(['{{%commerce_sales}}'])
                 ->where(['id' => $salesProductType['saleId']])
                 ->exists();
 
@@ -209,7 +212,7 @@ class m171202_180000_promotions_for_all_purchasables extends Migration
         // Get all variant IDs with their product ID
         $variantIds = (new Query())
             ->select(['id', 'productId'])
-            ->from('{{%commerce_variants}}')
+            ->from(['{{%commerce_variants}}'])
             ->where(['in', 'productId', $salesProductIds])
             ->pairs();
 
@@ -218,18 +221,19 @@ class m171202_180000_promotions_for_all_purchasables extends Migration
         foreach ($salesProducts as $salesProduct) {
             $saleExists = (new Query())
                 ->select(['id'])
-                ->from('{{%commerce_sales}}')
+                ->from(['{{%commerce_sales}}'])
                 ->where(['id' => $salesProduct['saleId']])
                 ->exists();
+
             // The variant is the purchasable, so link to the variant
             foreach ($variantIds as $variantId => $productId) {
                 if ($salesProduct['productId'] == $productId && $saleExists) {
-                    $newSalesPurchasables[] = [$salesProduct['saleId'], $variantId, Variant::class];
+                    $newSalesPurchasables[] = ['saleId' => $salesProduct['saleId'], 'purchasableId' => $variantId, 'purchasableType' => Variant::class];
                 }
             }
         }
 
-        $this->batchInsert('{{%commerce_sale_purchasables}}', ['saleId', 'purchasableId', 'purchasableType'], $newSalesPurchasables);
+        Craft::$app->getCache()->set('commerce_sale_purchasables_001', Json::encode($newSalesPurchasables));
 
         MigrationHelper::dropTable('{{%commerce_sale_products}}');
 
@@ -241,7 +245,6 @@ class m171202_180000_promotions_for_all_purchasables extends Migration
 
         $this->renameColumn('{{%commerce_sales}}', 'allProducts', 'allPurchasables');
         $this->renameColumn('{{%commerce_sales}}', 'allProductTypes', 'allCategories');
-
 
         // Replace discounts_products with discounts_purchasables
         $this->createTable('{{%commerce_discount_purchasables}}', [
@@ -257,7 +260,7 @@ class m171202_180000_promotions_for_all_purchasables extends Migration
         // Get all variant IDs with their product ID
         $variantIds = (new Query())
             ->select(['id', 'productId'])
-            ->from('{{%commerce_variants}}')
+            ->from(['{{%commerce_variants}}'])
             ->where(['in', 'productId', $discountsProductIds])
             ->pairs();
 
@@ -266,19 +269,19 @@ class m171202_180000_promotions_for_all_purchasables extends Migration
         foreach ($discountsProducts as $discountsProduct) {
             $discountExists = (new Query())
                 ->select(['id'])
-                ->from('{{%commerce_discounts}}')
+                ->from(['{{%commerce_discounts}}'])
                 ->where(['id' => $discountsProduct['discountId']])
                 ->exists();
 
             // The variant is the purchasable, so link to the variant
             foreach ($variantIds as $variantId => $productId) {
                 if ($discountsProduct['productId'] == $productId && $discountExists) {
-                    $newDiscountsPurchasables[] = [$discountsProduct['discountId'], $variantId, Variant::class];
+                    $newDiscountsPurchasables[] = ['discountId' => $discountsProduct['discountId'], 'purchasableId' => $variantId, 'purchasableType' => Variant::class];
                 }
             }
         }
 
-        $this->batchInsert('{{%commerce_discount_purchasables}}', ['discountId', 'purchasableId', 'purchasableType'], $newDiscountsPurchasables);
+        Craft::$app->getCache()->set('commerce_discount_purchasables_001', Json::encode($newDiscountsPurchasables));
 
         MigrationHelper::dropTable('{{%commerce_discount_products}}');
 
@@ -306,8 +309,8 @@ class m171202_180000_promotions_for_all_purchasables extends Migration
 
     /**
      * @return bool|CategoryGroup
-     * @throws \Throwable
-     * @throws \craft\errors\CategoryGroupNotFoundException
+     * @throws Throwable
+     * @throws CategoryGroupNotFoundException
      */
     private function _createCategoryGroup()
     {
@@ -348,7 +351,7 @@ class m171202_180000_promotions_for_all_purchasables extends Migration
      * @param $categoryGroup
      * @param $productTypes
      * @return $field
-     * @throws \Throwable
+     * @throws Throwable
      */
     private function _createCategoryFieldsOnProducts($categoryGroup, array $productTypes)
     {
@@ -360,6 +363,7 @@ class m171202_180000_promotions_for_all_purchasables extends Migration
 
         $settings = ['source' => 'group:' . $categoryGroup->id, 'branchLimit' => '', 'selectionLabel' => 'Add a promotion category'];
 
+        /** @var Categories $field */
         $field = $fieldsService->createField([
             'type' => Categories::class,
             'id' => null,

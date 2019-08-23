@@ -30,7 +30,7 @@ class TaxCategoriesController extends BaseTaxSettingsController
     public function actionIndex(): Response
     {
         $taxCategories = Plugin::getInstance()->getTaxCategories()->getAllTaxCategories();
-        return $this->renderTemplate('commerce/settings/taxcategories/index', compact('taxCategories'));
+        return $this->renderTemplate('commerce/tax/taxcategories/index', compact('taxCategories'));
     }
 
     /**
@@ -43,7 +43,8 @@ class TaxCategoriesController extends BaseTaxSettingsController
     {
         $variables = [
             'id' => $id,
-            'taxCategory' => $taxCategory
+            'taxCategory' => $taxCategory,
+            'productTypes' => Plugin::getInstance()->getProductTypes()->getAllProductTypes()
         ];
 
         if (!$variables['taxCategory']) {
@@ -64,7 +65,7 @@ class TaxCategoriesController extends BaseTaxSettingsController
             $variables['title'] = Craft::t('commerce', 'Create a new tax category');
         }
 
-        return $this->renderTemplate('commerce/settings/taxcategories/_edit', $variables);
+        return $this->renderTemplate('commerce/tax/taxcategories/_edit', $variables);
     }
 
     /**
@@ -82,7 +83,16 @@ class TaxCategoriesController extends BaseTaxSettingsController
         $taxCategory->name = Craft::$app->getRequest()->getBodyParam('name');
         $taxCategory->handle = Craft::$app->getRequest()->getBodyParam('handle');
         $taxCategory->description = Craft::$app->getRequest()->getBodyParam('description');
-        $taxCategory->default = Craft::$app->getRequest()->getBodyParam('default');
+        $taxCategory->default = (bool)Craft::$app->getRequest()->getBodyParam('default');
+
+        // Set the new product types
+        $productTypes = [];
+        foreach (Craft::$app->getRequest()->getBodyParam('productTypes', []) as $productTypeId) {
+            if ($productTypeId && $productType = Plugin::getInstance()->getProductTypes()->getProductTypeById($productTypeId)) {
+                $productTypes[] = $productType;
+            }
+        }
+        $taxCategory->setProductTypes($productTypes);
 
         // Save it
         if (Plugin::getInstance()->getTaxCategories()->saveTaxCategory($taxCategory)) {

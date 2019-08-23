@@ -47,10 +47,7 @@ class GatewaysController extends BaseAdminController
      */
     public function actionEdit(int $id = null, GatewayInterface $gateway = null): Response
     {
-        $variables = [
-            'id' => $id,
-            'gateway' => $gateway
-        ];
+        $variables = compact('id', 'gateway');
 
         $gatewayService = Plugin::getInstance()->getGateways();
 
@@ -66,7 +63,7 @@ class GatewaysController extends BaseAdminController
             }
         }
 
-        /** @var string[] $allGatewayTypes */
+        /** @var string[]|GatewayInterface[] $allGatewayTypes */
         $allGatewayTypes = $gatewayService->getAllGatewayTypes();
 
         // Make sure the selected gateway class is in there
@@ -101,8 +98,8 @@ class GatewaysController extends BaseAdminController
     }
 
     /**
-     * @throws HttpException
      * @return Response|null
+     * @throws HttpException
      */
     public function actionSave()
     {
@@ -112,9 +109,10 @@ class GatewaysController extends BaseAdminController
         $gatewayService = Plugin::getInstance()->getGateways();
 
         $type = $request->getRequiredParam('type');
+        $gatewayId = $request->getBodyParam('id');
 
         $config = [
-            'id' => $request->getBodyParam('id'),
+            'id' => $gatewayId,
             'type' => $type,
             'name' => $request->getBodyParam('name'),
             'handle' => $request->getBodyParam('handle'),
@@ -126,6 +124,14 @@ class GatewaysController extends BaseAdminController
         // For new gateway avoid NULL value.
         if (!$request->getBodyParam('id')) {
             $config['isArchived'] = false;
+        }
+
+        // If this is an existing gateway, populate with properties unchangeable by this action.
+        if ($gatewayId) {
+            /** @var Gateway $savedGateway */
+            $savedGateway = $gatewayService->getGatewayById($gatewayId);
+            $config['uid'] = $savedGateway->uid;
+            $config['sortOrder'] = $savedGateway->sortOrder;
         }
 
         /** @var Gateway $gateway */
@@ -146,7 +152,7 @@ class GatewaysController extends BaseAdminController
         }
 
         $session->setNotice(Craft::t('commerce', 'Gateway saved.'));
-        $this->redirectToPostedUrl($gateway);
+        return $this->redirectToPostedUrl($gateway);
     }
 
     /**

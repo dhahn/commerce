@@ -124,6 +124,11 @@ class ShippingRule extends Model implements ShippingRuleInterface
     public $maxRate = 0;
 
     /**
+     * @var bool Is lite shipping rule
+     */
+    public $isLite = 0;
+
+    /**
      * @param Order $order
      * @return array
      */
@@ -211,21 +216,38 @@ class ShippingRule extends Model implements ShippingRuleInterface
             return false;
         }
 
-        $shippingRuleCategories = $this->getShippingRuleCategories();
+        $lineItems = $order->getLineItems();
 
-        $orderShippingCategories = $this->_getUniqueCategoryIdsInOrder($order);
-        list($disallowedCategories, $requiredCategories) = $this->_getRequiredAndDisallowedCategoriesFromRule($shippingRuleCategories);
-
-        // Does the order have any disallowed categories in the cart?
-        $result = array_intersect($orderShippingCategories, $disallowedCategories);
-        if (!empty($result)) {
-            return false;
+        $nonShippableItems = [];
+        foreach ($lineItems as $item) {
+            $purchasable = $item->getPurchasable();
+            if($purchasable && !$purchasable->getIsShippable())
+            {
+                $nonShippableItems[$item->id] = $item->id;
+            }
         }
 
-        // Does the order have all required categories in the cart?
-        $result = !array_diff($requiredCategories, $orderShippingCategories);
-        if (!$result) {
-            return false;
+        $shippableItemsInOrder = count($lineItems) != count($nonShippableItems);
+
+        // If we have some shippable items in the cart, lets look at their allow/disallow rules
+        if($shippableItemsInOrder)
+        {
+            $shippingRuleCategories = $this->getShippingRuleCategories();
+            $orderShippingCategories = $this->_getUniqueCategoryIdsInOrder($order);
+            list($disallowedCategories, $requiredCategories) = $this->_getRequiredAndDisallowedCategoriesFromRule($shippingRuleCategories);
+
+
+            // Does the order have any disallowed categories in the cart?
+            $result = array_intersect($orderShippingCategories, $disallowedCategories);
+            if (!empty($result)) {
+                return false;
+            }
+
+            // Does the order have all required categories in the cart?
+            $result = !array_diff($requiredCategories, $orderShippingCategories);
+            if (!$result) {
+                return false;
+            }
         }
 
         $this->getShippingRuleCategories();
@@ -242,10 +264,8 @@ class ShippingRule extends Model implements ShippingRuleInterface
         }
 
         /** @var ShippingAddressZone $shippingZone */
-        if ($shippingZone) {
-            if (!Plugin::getInstance()->getAddresses()->addressWithinZone($shippingAddress, $shippingZone)) {
-                return false;
-            }
+        if ($shippingZone && !Plugin::getInstance()->getAddresses()->addressWithinZone($shippingAddress, $shippingZone)) {
+            return false;
         }
 
         // order qty rules are inclusive (min <= x <= max)
@@ -257,10 +277,10 @@ class ShippingRule extends Model implements ShippingRuleInterface
         }
 
         // order total rules exclude maximum limit (min <= x < max)
-        if ($this->minTotal && $this->minTotal > $order->itemTotal) {
+        if ($this->minTotal && $this->minTotal > $order->getItemSubtotal()) {
             return false;
         }
-        if ($this->maxTotal && $this->maxTotal <= $order->itemTotal) {
+        if ($this->maxTotal && $this->maxTotal <= $order->getItemSubtotal()) {
             return false;
         }
 

@@ -12,8 +12,11 @@ use craft\commerce\base\Plan;
 use craft\commerce\base\SubscriptionGateway;
 use craft\commerce\Plugin;
 use craft\elements\Entry;
+use craft\helpers\Json;
+use function is_array;
 use yii\base\Exception;
 use yii\base\InvalidConfigException;
+use yii\web\BadRequestHttpException;
 use yii\web\HttpException;
 use yii\web\Response;
 
@@ -45,10 +48,7 @@ class PlansController extends BaseAdminController
      */
     public function actionEditPlan(int $planId = null, Plan $plan = null): Response
     {
-        $variables = [
-            'planId' => $planId,
-            'plan' => $plan,
-        ];
+        $variables = compact('planId', 'plan');
 
         $variables['brandNewPlan'] = false;
 
@@ -92,7 +92,7 @@ class PlansController extends BaseAdminController
      * @throws Exception
      * @throws HttpException if request does not match requirements
      * @throws InvalidConfigException if gateway does not support subscriptions
-     * @throws \yii\web\BadRequestHttpException
+     * @throws BadRequestHttpException
      */
     public function actionSavePlan()
     {
@@ -112,21 +112,31 @@ class PlansController extends BaseAdminController
 
         $planInformationIds = $request->getBodyParam('planInformation');
 
-        $plan = $gateway->getPlanModel();
+        $planService = Plugin::getInstance()->getPlans();
+        $planId = $request->getParam('planId');
+
+        $plan = null;
+        if ($planId) {
+            $plan = $planService->getPlanById($planId);
+        }
+
+        if (null === $plan) {
+            $plan = $gateway->getPlanModel();
+        }
 
         // Shared attributes
-        $plan->id = $request->getParam('planId');
+        $plan->id = $planId;
         $plan->gatewayId = $gatewayId;
         $plan->name = $request->getParam('name');
         $plan->handle = $request->getParam('handle');
-        $plan->planInformationId = \is_array($planInformationIds) ? reset($planInformationIds) : null;
+        $plan->planInformationId = is_array($planInformationIds) ? reset($planInformationIds) : null;
         $plan->reference = $reference;
         $plan->enabled = (bool)$request->getParam('enabled');
         $plan->planData = $planData;
         $plan->isArchived = false;
 
         // Save $plan
-        if (Plugin::getInstance()->getPlans()->savePlan($plan)) {
+        if ($planService->savePlan($plan)) {
             Craft::$app->getSession()->setNotice(Craft::t('commerce', 'Subscription plan saved.'));
             $this->redirectToPostedUrl($plan);
         } else {
@@ -158,4 +168,21 @@ class PlansController extends BaseAdminController
 
         return $this->asJson(['success' => true]);
     }
+
+    /**
+     * @throws HttpException
+     */
+    public function actionReorder(): Response
+    {
+        $this->requirePostRequest();
+        $this->requireAcceptsJson();
+        $ids = Json::decode(Craft::$app->getRequest()->getRequiredBodyParam('ids'));
+
+        if ($success = Plugin::getInstance()->getPlans()->reorderPlans($ids)) {
+            return $this->asJson(['success' => $success]);
+        }
+
+        return $this->asJson(['error' => Craft::t('commerce', 'Couldn’t reorder plans.')]);
+    }
+
 }

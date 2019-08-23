@@ -8,7 +8,6 @@
 namespace craft\commerce\services;
 
 use Craft;
-use craft\commerce\models\ShippingCategory;
 use craft\commerce\models\ShippingRule;
 use craft\commerce\models\ShippingRuleCategory;
 use craft\commerce\Plugin;
@@ -21,7 +20,8 @@ use yii\base\Exception;
 /**
  * Shipping rule service.
  *
- * @property array|ShippingRule[] $allShippingRules
+ * @property ShippingRule $liteShippingRule The lite shipping rule
+ * @property ShippingRule[] $allShippingRules
  * @author Pixel & Tonic, Inc. <support@pixelandtonic.com>
  * @since 2.0
  */
@@ -79,10 +79,6 @@ class ShippingRules extends Component
             return $this->_shippingRulesByMethodId[$id];
         }
 
-        if ($this->_fetchedAllShippingRules) {
-            return null;
-        }
-
         $results = $this->_createShippingRulesQuery()
             ->where(['methodId' => $id])
             ->orderBy('priority')
@@ -111,10 +107,6 @@ class ShippingRules extends Component
     {
         if (isset($this->_allShippingRules[$id])) {
             return $this->_allShippingRules[$id];
-        }
-
-        if ($this->_fetchedAllShippingRules) {
-            return null;
         }
 
         $result = $this->_createShippingRulesQuery()
@@ -171,7 +163,8 @@ class ShippingRules extends Component
             'weightRate',
             'percentageRate',
             'minRate',
-            'maxRate'
+            'maxRate',
+            'isLite'
         ];
         foreach ($fields as $field) {
             $record->$field = $model->$field;
@@ -198,7 +191,6 @@ class ShippingRules extends Component
 
         // Generate a rule category record for all categories regardless of data submitted
         foreach (Plugin::getInstance()->getShippingCategories()->getAllShippingCategories() as $shippingCategory) {
-            /** @var ShippingCategory $ruleCategory */
             if (isset($model->getShippingRuleCategories()[$shippingCategory->id]) && $ruleCategory = $model->getShippingRuleCategories()[$shippingCategory->id]) {
                 $ruleCategory = new ShippingRuleCategory([
                     'shippingRuleId' => $model->id,
@@ -220,6 +212,49 @@ class ShippingRules extends Component
         }
 
         return true;
+    }
+
+    /**
+     * Save a shipping rule.
+     *
+     * @param ShippingRule $model
+     * @param bool $runValidation should we validate this rule before saving.
+     * @return bool
+     * @throws Exception
+     */
+    public function saveLiteShippingRule(ShippingRule $model, bool $runValidation = true): bool
+    {
+        $model->isLite = true;
+        $model->id = null;
+
+        // Delete the current lite shipping rule.
+        Craft::$app->getDb()->createCommand()
+            ->delete(ShippingRuleRecord::tableName(), ['isLite' => true])
+            ->execute();
+
+        return $this->saveShippingRule($model, $runValidation);
+    }
+
+    /**
+     * Gets the the lite shipping rule or returns a new one.
+     *
+     * @return ShippingRule
+     */
+    public function getLiteShippingRule(): ShippingRule
+    {
+        $liteRule = $this->_createShippingRulesQuery()->one();
+
+        if ($liteRule == null) {
+            $liteRule = new ShippingRule();
+            $liteRule->isLite = true;
+            $liteRule->name = 'Shipping Cost';
+            $liteRule->description = 'Shipping Cost';
+            $liteRule->enabled = true;
+        } else {
+            $liteRule = new ShippingRule($liteRule);
+        }
+
+        return $liteRule;
     }
 
     /**
@@ -263,7 +298,7 @@ class ShippingRules extends Component
      */
     private function _createShippingRulesQuery(): Query
     {
-        return (new Query())
+        $query = (new Query())
             ->select([
                 'id',
                 'shippingZoneId',
@@ -284,8 +319,15 @@ class ShippingRules extends Component
                 'percentageRate',
                 'minRate',
                 'maxRate',
+                'isLite'
             ])
             ->orderBy('name')
             ->from(['{{%commerce_shippingrules}}']);
+
+        if (Plugin::getInstance()->is(Plugin::EDITION_LITE)) {
+            $query->andWhere('[[isLite]] = true');
+        }
+
+        return $query;
     }
 }

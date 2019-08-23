@@ -1,10 +1,12 @@
-{% extends "commerce/_layouts/settingscp" %}
+{% extends "commerce/_layouts/cp" %}
 {% set title = productType.id ? productType.name : 'Create a new product type'|t('commerce') %}
 
 {% set crumbs = [
     { label: "Commerce Settings"|t('commerce'), url: url('commerce/settings') },
     { label: "Product Types"|t('commerce'), url: url('commerce/settings/producttypes') },
 ] %}
+
+{% set selectedSubnavItem = 'settings' %}
 
 {% set fullPageForm = true %}
 
@@ -62,26 +64,6 @@
             name: 'descriptionFormat',
             value: productType.descriptionFormat,
             errors: productType.getErrors('descriptionFormat')
-        }) }}
-
-        {{ forms.multiSelectField({
-            label: 'Available Tax Categories'|t('commerce'),
-            instructions: 'Choose the tax categories products of this type can belong to. Minimum of one required.'|t('commerce'),
-            id: 'taxCategories',
-            name: 'taxCategories',
-            required: true,
-            errors: productType.getErrors('taxCategories'),
-            class: 'selectize fullwidth',
-        }) }}
-
-        {{ forms.multiSelectField({
-            label: 'Available Shipping Categories'|t('commerce'),
-            instructions: 'Choose the shipping categories products of this type can belong to. Minimum of one required.'|t('commerce'),
-            id: 'shippingCategories',
-            name: 'shippingCategories',
-            required: true,
-            errors: productType.getErrors('shippingCategories'),
-            class: 'selectize fullwidth',
         }) }}
 
         {{ forms.checkboxField({
@@ -222,6 +204,34 @@
 
     </div>
 
+    <div id="tax-and-shipping" class="hidden">
+        <h3>{{ 'Available Shipping Categories'|t('commerce') }} </h3>
+            {% for cat in productType.getShippingCategories() %}
+                {% if loop.first %}<ul class="bullets">{% endif %}
+                    {% if currentUser.can('commerce-manageShipping') %}
+                        <li><a href="{{ cat.getCpEditUrl() }}">{{ cat.name }}</a></li>
+                    {% else %}
+                        <li>{{ cat.name }}</li>
+                    {% endif %}
+                {% if loop.last %}</ul>{% endif %}
+            {% endfor %}
+            <br>
+            {% if currentUser.can('commerce-manageShipping') %}<a href="{{ url('commerce/shipping/shippingcategories')}}">{{ 'Manage All Shipping Categories'|t('commerce') }}</a>{% endif %}
+        <hr>
+
+        <h3>{{ 'Available Tax Categories'|t('commerce') }} </h3>
+            {% for cat in productType.getTaxCategories() %}
+                {% if loop.first %}<ul class="bullets">{% endif %}
+                    {% if currentUser.can('commerce-manageTax') %}
+                        <li><a href="{{ cat.getCpEditUrl() }}">{{ cat.name }}</a></li>
+                    {% else %}
+                        <li>{{ cat.name }}</li>
+                    {% endif %}
+                {% if loop.last %}</ul>{% endif %}
+            {% endfor %}
+            <br>
+            {% if currentUser.can('commerce-manageTax') %}<a href="{{ url('commerce/tax/taxcategories')}}">{{ 'Manage All Tax Categories'|t('commerce') }}</a>{% endif %}
+    </div>
     <div id="product-fields" class="hidden">
 
         {% include "_includes/fieldlayoutdesigner" with {
@@ -260,57 +270,5 @@
 
     $('#hasVariants').on('change', function() {
         $('#tab-variantFields').parent().toggleClass('hidden');
-    });
-
-    window.productTypeShippingCategories = JSON.parse('{{ productType.shippingCategories|keys|json_encode|raw }}');
-    window.shippingCategories = {{ craft.commerce.shippingCategories.allShippingCategories|values|json_encode|raw }};
-
-    $.each(window.shippingCategories, function(key, shippingCategory) {
-        if (shippingCategory.default == 1) {
-            window.defaultShippingCategory = shippingCategory;
-        }
-    });
-
-    $(function() {
-        var $shippingCategories = $('#shippingCategories').selectize({
-            options: window.shippingCategories,
-            items: window.productTypeShippingCategories,
-            valueField: 'id',
-            labelField: 'name',
-            plugins: ['remove_button'],
-            create: false,
-            dropdownParent: 'body',
-            onItemRemove: function() {
-                if (!$shippingCategories[0].selectize.items.length) {
-                    $shippingCategories[0].selectize.addItem(window.defaultShippingCategory.id);
-                }
-            }
-        });
-    });
-
-    window.productTypeTaxCategories = JSON.parse('{{ productType.taxCategories|keys|json_encode|raw }}');
-    window.taxCategories = {{ craft.commerce.taxCategories.allTaxCategories|values|json_encode|raw }};
-
-    $.each(window.taxCategories, function(key, taxCategory) {
-        if (taxCategory.default == 1) {
-            window.defaultTaxCategory = taxCategory;
-        }
-    });
-
-    $(function() {
-        var $taxCategories = $('#taxCategories').selectize({
-            options: window.taxCategories,
-            items: window.productTypeTaxCategories,
-            valueField: 'id',
-            labelField: 'name',
-            plugins: ['remove_button'],
-            create: false,
-            dropdownParent: 'body',
-            onItemRemove: function() {
-                if (!$taxCategories[0].selectize.items.length) {
-                    $taxCategories[0].selectize.addItem(window.defaultTaxCategory.id);
-                }
-            }
-        });
     });
 {% endjs %}

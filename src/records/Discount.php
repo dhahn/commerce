@@ -10,6 +10,7 @@ namespace craft\commerce\records;
 use craft\db\ActiveRecord;
 use craft\records\Category;
 use craft\records\UserGroup;
+use DateTime;
 use yii\db\ActiveQueryInterface;
 
 /**
@@ -20,13 +21,14 @@ use yii\db\ActiveQueryInterface;
  * @property bool $allPurchasables
  * @property float $baseDiscount
  * @property string $code
- * @property \DateTime $dateFrom
- * @property \DateTime $dateTo
+ * @property DateTime $dateFrom
+ * @property DateTime $dateTo
  * @property string $description
  * @property ActiveQueryInterface $discountUserGroups
  * @property bool $enabled
  * @property bool $excludeOnSale
- * @property bool $freeShipping
+ * @property bool $hasFreeShippingForMatchingItems
+ * @property bool $hasFreeShippingForOrder
  * @property UserGroup[] $groups
  * @property int $id
  * @property int $maxPurchaseQty

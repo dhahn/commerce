@@ -23,6 +23,7 @@ use craft\commerce\Plugin;
 use craft\commerce\records\Product as ProductRecord;
 use craft\db\Query;
 use craft\elements\actions\CopyReferenceTag;
+use craft\elements\actions\Restore;
 use craft\elements\actions\SetStatus;
 use craft\elements\db\ElementQuery;
 use craft\elements\db\ElementQueryInterface;
@@ -30,6 +31,7 @@ use craft\helpers\ArrayHelper;
 use craft\helpers\DateTimeHelper;
 use craft\helpers\UrlHelper;
 use craft\validators\DateTimeValidator;
+use DateTime;
 use yii\base\Exception;
 use yii\base\InvalidConfigException;
 
@@ -43,6 +45,8 @@ use yii\base\InvalidConfigException;
  * @property string $snapshot allow the variant to ask the product what data to snapshot
  * @property int $totalStock
  * @property bool $hasUnlimitedStock whether at least one variant has unlimited stock
+ * @property Variant $cheapestVariant
+ * @property ProductType $type
  * @property Variant[]|array $variants an array of the product's variants
  * @author Pixel & Tonic, Inc. <support@pixelandtonic.com>
  * @since 2.0
@@ -60,17 +64,12 @@ class Product extends Element
     // =========================================================================
 
     /**
-     * @inheritdoc
-     */
-    public $id;
-
-    /**
-     * @var \DateTime Post date
+     * @var DateTime Post date
      */
     public $postDate;
 
     /**
-     * @var \DateTime Expiry date
+     * @var DateTime Expiry date
      */
     public $expiryDate;
 
@@ -164,15 +163,10 @@ class Product extends Element
      */
     private $_defaultVariant;
 
-	/**
-	 * @var Variant This product's cheapest variant
-	 */
-    private $_cheapestVariant;
-
     /**
-     * @var array The variant IDs to delete
+     * @var Variant This product's cheapest variant
      */
-    private $_variantIdsToDelete = [];
+    private $_cheapestVariant;
 
     // Public Methods
     // =========================================================================
@@ -249,9 +243,9 @@ class Product extends Element
     public function getIsEditable(): bool
     {
         if ($this->getType()) {
-            $id = $this->getType()->id;
+            $uid = $this->getType()->uid;
 
-            return Craft::$app->getUser()->checkPermission('commerce-manageProductType:' . $id);
+            return Craft::$app->getUser()->checkPermission('commerce-manageProductType:' . $uid);
         }
 
         return false;
@@ -282,14 +276,11 @@ class Product extends Element
      * Allows the variant to ask the product what data to snapshot.
      *
      * @return array
+     * @deprecated as of 2.1.5.3 Not needed as products are not purchasables.
      */
     public function getSnapshot(): array
     {
-        $data = [
-            'title' => $this->title
-        ];
-
-        return array_merge($this->getAttributes(), $data);
+        return [];
     }
 
     /**
@@ -308,7 +299,7 @@ class Product extends Element
         $productTypeSiteSettings = $this->getType()->getSiteSettings();
 
         if (!isset($productTypeSiteSettings[$this->siteId])) {
-            throw new InvalidConfigException('Category’s group (' . $this->groupId . ') is not enabled for site ' . $this->siteId);
+            throw new InvalidConfigException('The „' . $this->getType()->name . '” product group is not enabled for the „' . $this->getSite()->name . '” site.');
         }
 
         return $productTypeSiteSettings[$this->siteId]->uriFormat;
@@ -400,7 +391,7 @@ class Product extends Element
         }
 
         return $this->_cheapestVariant;
-	}
+    }
 
     /**
      * Returns an array of the product's variants.
@@ -444,6 +435,10 @@ class Product extends Element
         $this->_variants = [];
         $count = 1;
         $this->_defaultVariant = null;
+
+        if (empty($variants)) {
+            return;
+        }
 
         foreach ($variants as $key => $variant) {
             if (!$variant instanceof Variant) {
@@ -613,7 +608,6 @@ class Product extends Element
     {
         $viewService = Craft::$app->getView();
         $html = $viewService->renderTemplateMacro('commerce/products/_fields', 'titleField', [$this]);
-        $html .= $viewService->renderTemplateMacro('commerce/products/_fields', 'generalMetaFields', [$this]);
         $html .= $viewService->renderTemplateMacro('commerce/products/_fields', 'behavioralMetaFields', [$this]);
         $html .= parent::getEditorHtml();
 
@@ -711,15 +705,15 @@ class Product extends Element
                     $variant->siteId = $this->siteId;
                 }
 
-                // We already have set the default to the correct variant in beforeSave()
-                if ($variant->isDefault) {
-                    $this->defaultVariantId = $variant->id;
-                    Craft::$app->getDb()->createCommand()->update('{{%commerce_products}}', ['defaultVariantId' => $variant->id], ['id' => $this->id])->execute();;
-                }
-
                 $keepVariantIds[] = $variant->id;
 
                 Craft::$app->getElements()->saveElement($variant, false);
+
+                // We already have set the default to the correct variant in beforeSave()
+                if ($variant->isDefault) {
+                    $this->defaultVariantId = $variant->id;
+                    Craft::$app->getDb()->createCommand()->update('{{%commerce_products}}', ['defaultVariantId' => $variant->id], ['id' => $this->id])->execute();
+                }
             }
 
             foreach (array_diff($oldVariantIds, $keepVariantIds) as $deleteId) {
@@ -733,7 +727,19 @@ class Product extends Element
     /**
      * @inheritdoc
      */
-    public function beforeValidate(): bool
+    public function beforeRestore(): bool
+    {
+        $variants = Variant::find()->trashed(null)->productId($this->id)->status(null)->all();
+        Craft::$app->getElements()->restoreElements($variants);
+        $this->setVariants($variants);
+
+        return parent::beforeRestore();
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function beforeValidate()
     {
         // We need to generate all variant sku formats before validating the product,
         // since the product validates the uniqueness of all variants in memory.
@@ -755,23 +761,40 @@ class Product extends Element
     /**
      * @inheritdoc
      */
-    public function beforeDelete(): bool
+    public function afterDelete()
     {
-        $this->_variantIdsToDelete = Variant::find()->product($this)->ids();
+        $variants = Variant::find()
+            ->productId($this->id)
+            ->all();
 
-        return true;
+        $elementsService = Craft::$app->getElements();
+
+        foreach ($variants as $variant) {
+            $variant->deletedWithProduct = true;
+            $elementsService->deleteElement($variant);
+        }
+
+        parent::afterDelete();
     }
 
     /**
      * @inheritdoc
      */
-    public function afterDelete(): bool
+    public function afterRestore()
     {
-        foreach ($this->_variantIdsToDelete as $id) {
-            Craft::$app->getElements()->deleteElementById($id, Variant::class);
-        }
+        // Also restore any variants for this element
+        $variants = Variant::find()
+            ->anyStatus()
+            ->siteId($this->siteId)
+            ->productId($this->id)
+            ->trashed()
+            ->andWhere(['commerce_variants.deletedWithProduct' => true])
+            ->all();
 
-        return true;
+        Craft::$app->getElements()->restoreElements($variants);
+        $this->setVariants($variants);
+
+        parent::afterRestore();
     }
 
     /**
@@ -793,7 +816,7 @@ class Product extends Element
                 }
 
                 if (count(array_unique($skus)) < count($skus)) {
-                    $this->addError('variants', Craft::t('commerce', 'One or more SKU’s are not unique.'));
+                    $this->addError('variants', Craft::t('commerce', 'Not all SKUs are unique.'));
                 }
             }
         ];
@@ -807,7 +830,7 @@ class Product extends Element
     public function afterValidate()
     {
         if (!Model::validateMultiple($this->getVariants())) {
-            $this->addError(null); // add an empty error to prevent saving
+            $this->addError('variants', Craft::t('commerce', 'Error saving variants'));
         }
         parent::afterValidate();
     }
@@ -847,22 +870,21 @@ class Product extends Element
         }
 
         $defaultVariant = null;
-
         foreach ($this->getVariants() as $variant) {
             // Make the first variant (or the last one that isDefault) the default.
             if ($defaultVariant === null || $variant->isDefault) {
-                $defaultVariant = $variant;
+                $this->_defaultVariant = $defaultVariant = $variant;
             }
         }
-
-        $this->_defaultVariant = $defaultVariant;
 
         // Make sure the field layout is set correctly
         $this->fieldLayoutId = $this->getType()->fieldLayoutId;
 
         if ($this->enabled && !$this->postDate) {
             // Default the post date to the current date/time
-            $this->postDate = DateTimeHelper::currentUTCDateTime();
+            $this->postDate = new DateTime();
+            // ...without the seconds
+            $this->postDate->setTimestamp($this->postDate->getTimestamp() - ($this->postDate->getTimestamp() % 60));
         }
 
         return parent::beforeSave($isNew);
@@ -905,8 +927,8 @@ class Product extends Element
         $sources[] = ['heading' => Craft::t('commerce', 'Product Types')];
 
         foreach ($productTypes as $productType) {
-            $key = 'productType:' . $productType->id;
-            $canEditProducts = Craft::$app->getUser()->checkPermission('commerce-manageProductType:' . $productType->id);
+            $key = 'productType:' . $productType->uid;
+            $canEditProducts = Craft::$app->getUser()->checkPermission('commerce-manageProductType:' . $productType->uid);
 
             $sources[$key] = [
                 'key' => $key,
@@ -942,23 +964,37 @@ class Product extends Element
                         if ($productType) {
                             $productTypes = [$productType];
                         }
+                    } else if (preg_match('/^productType:(.+)$/', $source, $matches)) {
+                        $productType = Plugin::getInstance()->getProductTypes()->getProductTypeByUid($matches[1]);
+
+                        if ($productType) {
+                            $productTypes = [$productType];
+                        }
                     }
                 }
         }
 
         $actions = [];
 
-        $actions[] = [
-            'type' => CopyReferenceTag::class,
-            'elementType' => static::class,
-        ];
+        // Copy Reference Tag
+        $actions[] = Craft::$app->getElements()->createAction([
+            'type' => CopyReferenceTag::class
+        ]);
+
+        // Restore
+        $actions[] = Craft::$app->getElements()->createAction([
+            'type' => Restore::class,
+            'successMessage' => Craft::t('commerce', 'Products restored.'),
+            'partialSuccessMessage' => Craft::t('commerce', 'Some products restored.'),
+            'failMessage' => Craft::t('commerce', 'Products not restored.'),
+        ]);
 
         if (!empty($productTypes)) {
             $userSession = Craft::$app->getUser();
             $canManage = false;
 
             foreach ($productTypes as $productType) {
-                $canManage = $userSession->checkPermission('commerce-manageProductType:' . $productType->id);
+                $canManage = $userSession->checkPermission('commerce-manageProductType:' . $productType->uid);
             }
 
             if ($canManage) {

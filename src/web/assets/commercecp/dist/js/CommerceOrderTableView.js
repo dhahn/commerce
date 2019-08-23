@@ -21,6 +21,7 @@ Craft.Commerce.OrderTableView = Craft.TableElementIndexView.extend({
         $chart: null,
         $startDate: null,
         $endDate: null,
+        $exportButton: null,
 
         afterInit: function() {
             this.$explorerContainer = $('<div class="chart-explorer-container"></div>').prependTo(this.$container);
@@ -42,6 +43,8 @@ Craft.Commerce.OrderTableView = Craft.TableElementIndexView.extend({
             // chart explorer
             var $chartExplorer = $('<div class="chart-explorer"></div>').appendTo(this.$explorerContainer),
                 $chartHeader = $('<div class="chart-header"></div>').appendTo($chartExplorer),
+                $exportButton = $('<div class="btn menubtn export-menubtn">' + Craft.t('commerce', 'Export') + '</div>').appendTo($chartHeader),
+                $exportMenu = $('<div class="menu"><ul><li><a data-format="csv">CSV</a> <a data-format="xls">XLS</a></li><li><a data-format="xlsx">XLSX</a></li><li><a data-format="ods">ODS</a></li></ul></div>').appendTo($chartHeader),
                 $dateRange = $('<div class="date-range" />').appendTo($chartHeader),
                 $startDateContainer = $('<div class="datewrapper"></div>').appendTo($dateRange),
                 $to = $('<span class="to light">to</span>').appendTo($dateRange),
@@ -51,6 +54,7 @@ Craft.Commerce.OrderTableView = Craft.TableElementIndexView.extend({
                 $totalValueWrapper = $('<div class="total-value-wrapper"></div>').appendTo($total),
                 $totalValue = $('<span class="total-value">&nbsp;</span>').appendTo($totalValueWrapper);
 
+            this.$exportButton = $exportButton;
             this.$chartExplorer = $chartExplorer;
             this.$totalValue = $totalValue;
             this.$chartContainer = $('<div class="chart-container"></div>').appendTo($chartExplorer);
@@ -75,6 +79,10 @@ Craft.Commerce.OrderTableView = Craft.TableElementIndexView.extend({
             this.addListener(this.$startDate, 'keyup', 'handleStartDateChange');
             this.addListener(this.$endDate, 'keyup', 'handleEndDateChange');
 
+            new Garnish.MenuBtn(this.$exportButton, {
+                onOptionSelect: $.proxy(this, 'handleClickExport')
+            });
+
             // Set the start/end dates
             var startTime = this.getStorage('startTime') || ((new Date()).getTime() - (60 * 60 * 24 * 7 * 1000)),
                 endTime = this.getStorage('endTime') || ((new Date()).getTime());
@@ -85,7 +93,15 @@ Craft.Commerce.OrderTableView = Craft.TableElementIndexView.extend({
             // Load the report
             this.loadReport();
         },
+        handleClickExport: function(option) {
+            var data = {};
+            data.source = this.settings.params.source;
+            data.format = option.dataset.format;
+            data.startDate = Craft.Commerce.OrderTableView.getDateValue(this.startDate);
+            data.endDate = Craft.Commerce.OrderTableView.getDateValue(this.endDate);
+            location.href = Craft.getActionUrl('commerce/downloads/export-order', data);
 
+        },
         handleStartDateChange: function() {
             if (this.setStartDate(Craft.Commerce.OrderTableView.getDateFromDatepickerInstance(this.startDatepicker))) {
                 this.loadReport();
@@ -140,6 +156,12 @@ Craft.Commerce.OrderTableView = Craft.TableElementIndexView.extend({
             requestData.startDate = Craft.Commerce.OrderTableView.getDateValue(this.startDate);
             requestData.endDate = Craft.Commerce.OrderTableView.getDateValue(this.endDate);
 
+            if (requestData.source.includes('carts:')) {
+                this.$exportButton.addClass('hidden');
+            } else {
+                this.$exportButton.removeClass('hidden');
+            }
+
             this.$spinner.removeClass('hidden');
             this.$error.addClass('hidden');
             this.$chart.removeClass('error');
@@ -148,7 +170,7 @@ Craft.Commerce.OrderTableView = Craft.TableElementIndexView.extend({
             Craft.postActionRequest('commerce/charts/get-revenue-data', requestData, $.proxy(function(response, textStatus) {
                 this.$spinner.addClass('hidden');
 
-                if (textStatus === 'success' && typeof(response.error) === 'undefined') {
+                if (textStatus === 'success' && typeof (response.error) === 'undefined') {
                     if (!this.chart) {
                         this.chart = new Craft.charts.Area(this.$chart);
                     }
@@ -156,7 +178,7 @@ Craft.Commerce.OrderTableView = Craft.TableElementIndexView.extend({
                     var chartDataTable = new Craft.charts.DataTable(response.dataTable);
 
                     var chartSettings = {
-                        localeDefinition: response.localeDefinition,
+                        formatLocaleDefinition: response.formatLocaleDefinition,
                         orientation: response.orientation,
                         formats: response.formats,
                         dataScale: response.scale
@@ -165,11 +187,10 @@ Craft.Commerce.OrderTableView = Craft.TableElementIndexView.extend({
                     this.chart.draw(chartDataTable, chartSettings);
 
                     this.$totalValue.html(response.totalHtml);
-                }
-                else {
+                } else {
                     var msg = Craft.t('commerce', 'An unknown error occurred.');
 
-                    if (typeof(response) !== 'undefined' && response && typeof(response.error) !== 'undefined') {
+                    if (typeof (response) !== 'undefined' && response && typeof (response.error) !== 'undefined') {
                         msg = response.error;
                     }
 

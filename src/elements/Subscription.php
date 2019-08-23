@@ -21,13 +21,15 @@ use craft\elements\db\ElementQuery;
 use craft\elements\db\ElementQueryInterface;
 use craft\elements\User;
 use craft\helpers\ArrayHelper;
+use craft\helpers\Json;
 use craft\helpers\UrlHelper;
 use DateInterval;
 use DateTime;
+use Exception;
 use yii\base\InvalidConfigException;
 
 /**
- * Class Subscription
+ * Subscription model.
  *
  * @property bool $isOnTrial whether the subscription is still on trial
  * @property string $nextPaymentAmount
@@ -43,7 +45,7 @@ use yii\base\InvalidConfigException;
  * @property DateTime $trialExpires datetime of trial expiry
  * @author Pixel & Tonic, Inc. <support@pixelandtonic.com>
  * @copyright Copyright (c) 2015, Pixel & Tonic, Inc.
- * @since 1.0
+ * @since 2.0
  */
 class Subscription extends Element
 {
@@ -53,30 +55,15 @@ class Subscription extends Element
     /**
      * @var string
      */
-    const STATUS_ACTIVE = 'live';
+    const STATUS_ACTIVE = 'active';
 
     /**
      * @var string
      */
     const STATUS_EXPIRED = 'expired';
 
-    /**
-     * @var string
-     */
-    const STATUS_CANCELED = 'canceled';
-
-    /**
-     * @var string
-     */
-    const STATUS_TRIAL = 'trial';
-
     // Properties
     // =========================================================================
-
-    /**
-     * @var int ID
-     */
-    public $id;
 
     /**
      * @var int User id
@@ -112,11 +99,6 @@ class Subscription extends Element
      * @var DateTime Date of next payment
      */
     public $nextPaymentDate;
-
-    /**
-     * @var string The subscription data from gateway
-     */
-    public $subscriptionData;
 
     /**
      * @var bool Whether the subscription is canceled
@@ -157,6 +139,11 @@ class Subscription extends Element
      * @var Order
      */
     private $_order;
+
+    /**
+     * @var array The subscription data from gateway
+     */
+    public $_subscriptionData;
 
     // Public Methods
     // =========================================================================
@@ -227,9 +214,29 @@ class Subscription extends Element
     }
 
     /**
+     * @return array
+     */
+    public function getSubscriptionData(): array
+    {
+        return $this->_subscriptionData;
+    }
+
+    /**
+     *
+     * @param string|array $data
+     */
+    public function setSubscriptionData($data)
+    {
+        $data = Json::decodeIfJson($data);
+
+        $this->_subscriptionData = $data;
+    }
+
+    /**
      * Returns the datetime of trial expiry.
      *
      * @return DateTime
+     * @throws Exception
      */
     public function getTrialExpires(): DateTIme
     {
@@ -353,7 +360,7 @@ class Subscription extends Element
      */
     public function getName()
     {
-        return Craft::t('commerce', 'Subscription for {plan}', ['plan' => $this->getPlanName()]);
+        return Craft::t('commerce', 'Subscription to “{plan}”', ['plan' => $this->getPlanName()]);
     }
 
     /**
@@ -369,19 +376,7 @@ class Subscription extends Element
      */
     public function getStatus()
     {
-        if ($this->isExpired) {
-            return self::STATUS_EXPIRED;
-        }
-
-        if ($this->isCanceled) {
-            return self::STATUS_CANCELED;
-        }
-
-        if ($this->isOnTrial) {
-            return self::STATUS_TRIAL;
-        }
-
-        return self::STATUS_ACTIVE;
+        return $this->isExpired ? self::STATUS_EXPIRED : self::STATUS_ACTIVE;
     }
 
 
@@ -497,8 +492,6 @@ class Subscription extends Element
         return [
             self::STATUS_ACTIVE => Craft::t('commerce', 'Active'),
             self::STATUS_EXPIRED => Craft::t('commerce', 'Expired'),
-            self::STATUS_CANCELED => ['label' => Craft::t('commerce', 'Canceled'), 'color' => 'yellow'],
-            self::STATUS_TRIAL => ['label' => Craft::t('commerce', 'Trial'), 'color' => 'blue'],
         ];
     }
 
@@ -571,6 +564,7 @@ class Subscription extends Element
             'subscriber' => ['label' => Craft::t('commerce', 'Subscribing user')],
             'reference' => ['label' => Craft::t('commerce', 'Subscription reference')],
             'dateCanceled' => ['label' => Craft::t('commerce', 'Cancellation date')],
+            'dateCreated' => ['label' => Craft::t('commerce', 'Subscription date')],
             'dateExpired' => ['label' => Craft::t('commerce', 'Expiry date')],
             'trialExpires' => ['label' => Craft::t('commerce', 'Trial expiry date')]
         ];
@@ -585,7 +579,7 @@ class Subscription extends Element
 
         $attributes[] = 'subscriber';
         $attributes[] = 'orderLink';
-        $attributes[] = 'orderLink';
+        $attributes[] = 'dateCreated';
 
         return $attributes;
     }
@@ -608,7 +602,10 @@ class Subscription extends Element
                 return $this->getPlanName();
 
             case 'subscriber':
-                return $this->getSubscriber();
+                $subscriber = $this->getSubscriber();
+                $url = $subscriber->getCpEditUrl();
+
+                return '<a href="' . $url . '">' . $subscriber . '</a>';
 
             case 'orderLink':
                 $url = $this->getOrderEditUrl();

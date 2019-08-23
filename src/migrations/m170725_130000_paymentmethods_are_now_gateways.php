@@ -27,13 +27,13 @@ class m170725_130000_paymentmethods_are_now_gateways extends Migration
 
         $rows = (new Query())
             ->select(['id', 'name', 'type'])
-            ->from('{{%commerce_gateways}}')
+            ->from(['{{%commerce_gateways}}'])
             ->all();
 
         foreach ($rows as $row) {
             $handle = StringHelper::toCamelCase(StringHelper::toAscii($row['name']));
             $type = 'craft\\commerce\\gateways\\' . $row['type'];
-            $this->update('{{%commerce_gateways}}', ['handle' => $handle, 'type' => $type], ['id' => $row['id']]);
+            $this->update('{{%commerce_gateways}}', compact('handle', 'type'), ['id' => $row['id']]);
         }
 
         MigrationHelper::renameColumn('{{%commerce_orders}}', 'paymentMethodId', 'gatewayId', $this);

@@ -12,12 +12,12 @@ use craft\commerce\base\Model;
 use craft\commerce\elements\Product;
 use craft\commerce\elements\Variant;
 use craft\commerce\Plugin;
+use craft\commerce\records\ProductType as ProductTypeRecord;
 use craft\helpers\ArrayHelper;
 use craft\helpers\UrlHelper;
 use craft\models\FieldLayout;
 use craft\validators\HandleValidator;
 use craft\validators\UniqueValidator;
-use craft\commerce\records\ProductType as ProductTypeRecord;
 
 /**
  * Product type model.
@@ -105,6 +105,11 @@ class ProductType extends Model
      * @var int Variant layout ID
      */
     public $variantFieldLayoutId;
+
+    /**
+     * @var string UID
+     */
+    public $uid;
 
     /**
      * @var TaxCategory[]
@@ -201,8 +206,8 @@ class ProductType extends Model
      */
     public function getShippingCategories(): array
     {
-        if (!$this->_shippingCategories) {
-            $this->_shippingCategories = Plugin::getInstance()->getShippingCategories()->getShippingCategoriesByProductId($this->id);
+        if ($this->_shippingCategories === null) {
+            $this->_shippingCategories = Plugin::getInstance()->getShippingCategories()->getShippingCategoriesByProductTypeId($this->id);
         }
 
         return $this->_shippingCategories;
@@ -219,11 +224,10 @@ class ProductType extends Model
                 if ($category = Plugin::getInstance()->getShippingCategories()->getShippingCategoryById($category)) {
                     $categories[$category->id] = $category;
                 }
-            } else {
-                if ($category instanceof ShippingCategory) {
-                    if ($category = Plugin::getInstance()->getShippingCategories()->getShippingCategoryById($category)) {
-                        $categories[$category->id] = $category;
-                    }
+            } else if ($category instanceof ShippingCategory) {
+                // Make sure it exists
+                if ($category = Plugin::getInstance()->getShippingCategories()->getShippingCategoryById($category->id)) {
+                    $categories[$category->id] = $category;
                 }
             }
         }
@@ -236,7 +240,7 @@ class ProductType extends Model
      */
     public function getTaxCategories(): array
     {
-        if (!$this->_taxCategories) {
+        if ($this->_taxCategories === null) {
             $this->_taxCategories = Plugin::getInstance()->getTaxCategories()->getTaxCategoriesByProductTypeId($this->id);
         }
 
@@ -256,7 +260,8 @@ class ProductType extends Model
                 }
             } else {
                 if ($category instanceof TaxCategory) {
-                    if ($category = Plugin::getInstance()->getTaxCategories()->getTaxCategoryById($category)) {
+                    // Make sure it exists.
+                    if ($category = Plugin::getInstance()->getTaxCategories()->getTaxCategoryById($category->id)) {
                         $categories[$category->id] = $category;
                     }
                 }

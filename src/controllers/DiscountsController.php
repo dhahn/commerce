@@ -17,9 +17,12 @@ use craft\elements\Category;
 use craft\helpers\ArrayHelper;
 use craft\helpers\DateTimeHelper;
 use craft\helpers\Json;
+use craft\helpers\Localization;
 use craft\i18n\Locale;
 use yii\web\HttpException;
 use yii\web\Response;
+use function explode;
+use function get_class;
 
 /**
  * Class Discounts Controller
@@ -58,10 +61,7 @@ class DiscountsController extends BaseCpController
      */
     public function actionEdit(int $id = null, Discount $discount = null): Response
     {
-        $variables = [
-            'id' => $id,
-            'discount' => $discount,
-        ];
+        $variables = compact('id', 'discount');
 
         if (!$variables['discount']) {
             if ($variables['id']) {
@@ -95,22 +95,25 @@ class DiscountsController extends BaseCpController
         $discount->description = $request->getBodyParam('description');
         $discount->enabled = (bool)$request->getBodyParam('enabled');
         $discount->stopProcessing = (bool)$request->getBodyParam('stopProcessing');
-        $discount->purchaseTotal = $request->getBodyParam('purchaseTotal');
         $discount->purchaseQty = $request->getBodyParam('purchaseQty');
         $discount->maxPurchaseQty = $request->getBodyParam('maxPurchaseQty');
-        $discount->baseDiscount = $request->getBodyParam('baseDiscount');
-        $discount->perItemDiscount = $request->getBodyParam('perItemDiscount');
         $discount->percentDiscount = $request->getBodyParam('percentDiscount');
         $discount->percentageOffSubject = $request->getBodyParam('percentageOffSubject');
-        $discount->freeShipping = (bool)$request->getBodyParam('freeShipping');
+        $discount->hasFreeShippingForMatchingItems = (bool)$request->getBodyParam('hasFreeShippingForMatchingItems');
+        $discount->hasFreeShippingForOrder = (bool)$request->getBodyParam('hasFreeShippingForOrder');
         $discount->excludeOnSale = (bool)$request->getBodyParam('excludeOnSale');
-        $discount->code = $request->getBodyParam('code') ?: null;
+        $discount->code = trim($request->getBodyParam('code')) ?: null;
         $discount->perUserLimit = $request->getBodyParam('perUserLimit');
         $discount->perEmailLimit = $request->getBodyParam('perEmailLimit');
         $discount->totalUseLimit = $request->getBodyParam('totalUseLimit');
 
-        $discount->baseDiscount = (float)$request->getBodyParam('baseDiscount') * -1;
-        $discount->perItemDiscount = (float)$request->getBodyParam('perItemDiscount') * -1;
+        $baseDiscount = Localization::normalizeNumber($request->getBodyParam('baseDiscount'));
+        $discount->baseDiscount = $baseDiscount * -1;
+
+        $perItemDiscount = Localization::normalizeNumber($request->getBodyParam('perItemDiscount'));
+        $discount->perItemDiscount = $perItemDiscount * -1;
+
+        $discount->purchaseTotal = Localization::normalizeNumber($request->getBodyParam('purchaseTotal'));
 
         $date = $request->getBodyParam('dateFrom');
         if ($date) {
@@ -128,6 +131,7 @@ class DiscountsController extends BaseCpController
         $percentDiscountAmount = $request->getBodyParam('percentDiscount');
         $localeData = Craft::$app->getLocale();
         $percentSign = $localeData->getNumberSymbol(Locale::SYMBOL_PERCENT);
+        $percentDiscountAmount = Localization::normalizeNumber($percentDiscountAmount);
         if (strpos($percentDiscountAmount, $percentSign) || (float)$percentDiscountAmount >= 1) {
             $discount->percentDiscount = (float)$percentDiscountAmount / -100;
         } else {
@@ -242,12 +246,24 @@ class DiscountsController extends BaseCpController
             $variables['groups'] = [];
         }
 
+        if ($variables['discount']->baseDiscount != 0) {
+            $variables['discount']->baseDiscount = Craft::$app->formatter->asDecimal((float)$variables['discount']->baseDiscount * -1);
+        }
+
+        if ($variables['discount']->perItemDiscount != 0) {
+            $variables['discount']->perItemDiscount = Craft::$app->formatter->asDecimal((float)$variables['discount']->perItemDiscount * -1);
+        }
+
+        if ($variables['discount']->purchaseTotal != 0) {
+            $variables['discount']->purchaseTotal = Craft::$app->formatter->asDecimal((float)$variables['discount']->purchaseTotal);
+        }
+
         $variables['categoryElementType'] = Category::class;
         $variables['categories'] = null;
         $categories = $categoryIds = [];
 
         if (empty($variables['id']) && Craft::$app->getRequest()->getParam('categoryIds')) {
-            $categoryIds = \explode('|', Craft::$app->getRequest()->getParam('categoryIds'));
+            $categoryIds = explode('|', Craft::$app->getRequest()->getParam('categoryIds'));
         } else {
             $categoryIds = $variables['discount']->getCategoryIds();
         }
@@ -263,7 +279,7 @@ class DiscountsController extends BaseCpController
 
 
         if (empty($variables['id']) && Craft::$app->getRequest()->getParam('purchasableIds')) {
-            $purchasableIdsFromUrl = \explode('|', Craft::$app->getRequest()->getParam('purchasableIds'));
+            $purchasableIdsFromUrl = explode('|', Craft::$app->getRequest()->getParam('purchasableIds'));
             $purchasableIds = [];
             foreach ($purchasableIdsFromUrl as $purchasableId) {
                 $purchasable = Craft::$app->getElements()->getElementById((int)$purchasableId);
@@ -278,10 +294,10 @@ class DiscountsController extends BaseCpController
         }
 
         $purchasables = [];
-        foreach ($variables['discount']->getPurchasableIds() as $purchasableId) {
+        foreach ($purchasableIds as $purchasableId) {
             $purchasable = Craft::$app->getElements()->getElementById((int)$purchasableId);
             if ($purchasable && $purchasable instanceof PurchasableInterface) {
-                $class = \get_class($purchasable);
+                $class = get_class($purchasable);
                 $purchasables[$class] = $purchasables[$class] ?? [];
                 $purchasables[$class][] = $purchasable;
             }

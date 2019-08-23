@@ -8,6 +8,7 @@
 namespace craft\commerce\migrations;
 
 use craft\db\Migration;
+use craft\db\Query;
 use craft\helpers\MigrationHelper;
 
 /**
@@ -20,9 +21,9 @@ class m180402_161904_order_addresses_relations extends Migration
      */
     public function safeUp()
     {
-        $rougueOnes = (new \craft\db\Query())
-            ->select('orders.billingAddressId')
-            ->from('{{%commerce_orders}} orders')
+        $rougueOnes = (new Query())
+            ->select(['orders.billingAddressId'])
+            ->from(['{{%commerce_orders}} orders'])
             ->leftJoin('{{%commerce_addresses}} addresses', '[[orders.billingAddressId]] = [[addresses.id]]')
             ->where(['addresses.id' => null])
             ->andWhere(['not', ['orders.billingAddressId' => null]])
@@ -32,9 +33,9 @@ class m180402_161904_order_addresses_relations extends Migration
             $this->update('{{%commerce_orders}}', ['billingAddressId' => null], ['billingAddressId' => $id]);
         }
 
-        $rougueTwos = (new \craft\db\Query())
-            ->select('orders.shippingAddressId')
-            ->from('{{%commerce_orders}} orders')
+        $rougueTwos = (new Query())
+            ->select(['orders.shippingAddressId'])
+            ->from(['{{%commerce_orders}} orders'])
             ->leftJoin('{{%commerce_addresses}} addresses', '[[orders.shippingAddressId]] = [[addresses.id]]')
             ->where(['addresses.id' => null])
             ->andWhere(['not', ['orders.shippingAddressId' => null]])

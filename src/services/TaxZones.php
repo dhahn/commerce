@@ -8,12 +8,11 @@
 namespace craft\commerce\services;
 
 use Craft;
-use craft\commerce\models\Address;
 use craft\commerce\models\TaxAddressZone;
 use craft\commerce\records\Country as CountryRecord;
 use craft\commerce\records\State as StateRecord;
-use craft\commerce\records\TaxZone as TaxZoneRecord;
 use craft\commerce\records\TaxZone;
+use craft\commerce\records\TaxZone as TaxZoneRecord;
 use craft\commerce\records\TaxZoneCountry as TaxZoneCountryRecord;
 use craft\commerce\records\TaxZoneState as TaxZoneStateRecord;
 use craft\db\Query;
@@ -135,13 +134,13 @@ class TaxZones extends Component
             $exist = CountryRecord::find()->where(['id' => $countryIds])->exists();
 
             if (!$exist) {
-                $model->addError('countries', 'Please select some countries');
+                $model->addError('countries', Craft::t('commerce', 'At least one country must be selected.'));
             }
         } else {
             $exist = StateRecord::find()->where(['id' => $stateIds])->exists();
 
             if (!$exist) {
-                $model->addError('states', 'Please select some states');
+                $model->addError('states', Craft::t('commerce', 'At least one state must be selected.'));
             }
         }
 
@@ -170,19 +169,19 @@ class TaxZones extends Component
                     return [$id, $model->id];
                 }, $countryIds);
                 $cols = ['countryId', 'taxZoneId'];
-                $table = TaxZoneCountryRecord::tableName();
+                $table = '{{%commerce_taxzone_countries}}';
             } else {
                 $rows = array_map(function($id) use ($model) {
                     return [$id, $model->id];
                 }, $stateIds);
                 $cols = ['stateId', 'taxZoneId'];
-                $table = TaxZoneStateRecord::tableName();
+                $table = '{{%commerce_taxzone_states}}';
             }
             Craft::$app->getDb()->createCommand()->batchInsert($table, $cols, $rows)->execute();
 
             //If this was the default make all others not the default.
             if ($model->default) {
-                TaxZoneRecord::updateAll(['default' => 0], ['not', ['id' => $record->id]]);
+                TaxZoneRecord::updateAll(['default' => false], ['not', ['id' => $record->id]]);
             }
 
             $transaction->commit();
